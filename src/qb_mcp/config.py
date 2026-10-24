@@ -137,9 +137,15 @@ def _parse_instance(name: str, raw: dict[str, Any]) -> InstanceConfig:
 
 def find_config_path(explicit: str | Path | None = None) -> Path:
     """Locate the config file."""
-    candidates: list[Path] = []
+    # An explicit path is strict: never fall back to the working directory,
+    # otherwise a typo could silently load a different (real) configuration.
     if explicit:
-        candidates.append(Path(explicit).expanduser())
+        path = Path(explicit).expanduser()
+        if not path.is_file():
+            raise ConfigError(f"configuration file not found: {path}")
+        return path
+
+    candidates: list[Path] = []
     env_path = os.environ.get(CONFIG_ENV_VAR)
     if env_path:
         candidates.append(Path(env_path).expanduser())

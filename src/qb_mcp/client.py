@@ -155,6 +155,19 @@ class QBClient:
         value = self.get("/api/v2/app/preferences")
         return value if isinstance(value, dict) else {}
 
+    def server_state(self) -> dict[str, Any]:
+        """Global stats from ``sync/maindata``.
+
+        ``transfer/info`` only exposes live speeds and rate limits; the
+        cumulative totals and global ratio live in ``server_state``.
+        """
+        value = self.get("/api/v2/sync/maindata")
+        if isinstance(value, dict):
+            state = value.get("server_state")
+            if isinstance(state, dict):
+                return state
+        return {}
+
     def transfer_info(self) -> dict[str, Any]:
         value = self.get("/api/v2/transfer/info")
         return value if isinstance(value, dict) else {}

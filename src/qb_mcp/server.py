@@ -33,7 +33,7 @@ mcp = FastMCP("qb-mcp")
 _CONFIG: AppConfig | None = None
 _CLIENTS: dict[str, QBClient] = {}
 
-GB = 1024**3
+GB = 1000**3  # SI gigabytes, matching qBittorrent WebUI totals
 MB = 1024**2
 
 STATE_LABELS = {
@@ -156,7 +156,10 @@ def qb_instances() -> str:
         instance = config().get(name)
         try:
             version = client(name).version()
-            lines.append(f"  {name} ({instance.display}) {instance.url} - OK, qBittorrent {version}")
+            lines.append(
+                f"  {name} ({instance.display}) {instance.url} "
+                f"- OK, qBittorrent {version}"
+            )
         except (QBError, ConfigError) as exc:
             lines.append(f"  {name} ({instance.display}) {instance.url} - FAILED: {exc}")
     return "\n".join(lines)
@@ -173,23 +176,26 @@ def qb_overview(instance: str = "") -> str:
     for target in targets(instance or None):
         try:
             qb = client(target.name)
-            info = qb.transfer_info()
+            info = qb.server_state() or qb.transfer_info()
             torrents = qb.torrents()
             states: dict[str, int] = {}
             for torrent in torrents:
                 key = str(torrent.get("state") or "unknown")
                 states[key] = states.get(key, 0) + 1
-            state_text = ", ".join(
-                f"{STATE_LABELS.get(k, k)} {v}" for k, v in sorted(states.items(), key=lambda x: -x[1])
-            )
+            ordered = sorted(states.items(), key=lambda item: -item[1])
+            state_text = ", ".join(f"{STATE_LABELS.get(k, k)} {v}" for k, v in ordered)
+            dspeed = speed(info.get("dl_info_speed"))
+            uspeed = speed(info.get("up_info_speed"))
+            total_dl = gb(info.get("alltime_dl"))
+            total_ul = gb(info.get("alltime_ul"))
             blocks.append(
                 "\n".join(
                     [
                         f"[{target.name}] {target.display} - {target.url}",
                         f"  version      : {qb.version()}",
                         f"  connection   : {info.get('connection_status')}",
-                        f"  speed        : down {speed(info.get('dl_info_speed'))} / up {speed(info.get('up_info_speed'))}",
-                        f"  totals       : down {gb(info.get('alltime_dl')):.2f} GB / up {gb(info.get('alltime_ul')):.2f} GB",
+                        f"  speed        : down {dspeed} / up {uspeed}",
+                        f"  totals       : down {total_dl:.2f} GB / up {total_ul:.2f} GB",
                         f"  ratio        : {info.get('global_ratio')}",
                         f"  peers        : {info.get('total_peer_connections')}",
                         f"  torrents     : {len(torrents)} ({state_text})",
@@ -303,7 +309,7 @@ def qb_diagnose(instance: str, hash: str = "") -> str:
     try:
         qb = client(instance)
         version = qb.version()
-        info = qb.transfer_info()
+        info = qb.server_state() or qb.transfer_info()
         prefs = qb.preferences()
         torrents = qb.torrents()
     except (QBError, ConfigError) as exc:
@@ -344,13 +350,25 @@ def qb_diagnose(instance: str, hash: str = "") -> str:
     port = prefs.get("listen_port")
     findings.append(f"  监听端口: {port}")
 
-    # Speed limits
-    up_limit = info.get("up_info_speed")
-    findings.append(
-        f"  全局上传限速: {limit_text(prefs.get('up_limit'))} / 当前上传: {speed(up_limit)}"
+    # Speed limits - honour the alternative-limits mode
+    up_speed = info.get("up_info_speed")
+    alt_mode = int(prefs.get("speed_limits_mode") or 0) == 1 or bool(
+        prefs.get("use_alt_speed_limits")
     )
-    if int(prefs.get("up_limit") or 0) > 0:
-        verdict_bits.append(f"上传被限速在 {limit_text(prefs.get('up_limit'))}")
+    effective_up = prefs.get("alt_up_limit") if alt_mode else prefs.get("up_limit")
+    findings.append(
+        f"  上传限速: {limit_text(effective_up)}"
+        f"{' (备用限速模式已开启)' if alt_mode else ''} / 当前上传: {speed(up_speed)}"
+    )
+    up_limit_bytes = 0
+    if isinstance(effective_up, (int, float)):
+        up_limit_bytes = int(effective_up)
+    elif isinstance(effective_up, str) and effective_up.isdigit():
+        up_limit_bytes = int(effective_up)
+    try:
+        capped = up_limit_bytes > 0 and float(up_speed or 0) >= up_limit_bytes * 0.8
+    except (TypeError, ValueError):
+        capped = False
 
     # Peer supply
     leechers = sum(int(t.get("num_incomplete") or 0) for t in torrents)
@@ -358,6 +376,12 @@ def qb_diagnose(instance: str, hash: str = "") -> str:
     findings.append(f"  连接数: {peers} / 潜在下载者: {leechers}")
     if peers == 0 and leechers == 0:
         verdict_bits.append("没有任何下载需求方")
+    elif peers == 0 and leechers >= 10:
+        verdict_bits.append("tracker 有需求但连不上对等方(检查端口/防火墙)")
+    elif peers == 0 and leechers > 0:
+        verdict_bits.append(f"需求极少(全部种子合计仅 {leechers} 个潜在下载者)")
+    if capped:
+        verdict_bits.append(f"上传已顶到限速上限 {limit_text(effective_up)}")
 
     # State distribution
     states: dict[str, int] = {}
