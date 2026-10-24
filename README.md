@@ -9,6 +9,8 @@
 > This is an unofficial project. It is not affiliated with, endorsed by, or
 > supported by the qBittorrent project.
 
+**English** | [简体中文](README.zh-CN.md)
+
 `qb-mcp` wraps the qBittorrent WebUI API v2 and exposes it as eleven tools that
 an AI agent can call. It manages **any number of instances**, each with its own
 credentials, so a single agent can drive a home NAS and a remote seedbox at once.

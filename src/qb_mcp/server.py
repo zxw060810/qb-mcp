@@ -29,6 +29,11 @@ from .client import QBClient, QBError
 from .config import AppConfig, ConfigError, InstanceConfig, load_config
 
 mcp = FastMCP("qb-mcp")
+# FastMCP exposes no version argument and its low-level server falls back to
+# the mcp package version, so clients would see something like "1.28.1".
+# Pin it to ours so the handshake reports the real thing.
+if getattr(mcp, "_mcp_server", None) is not None:
+    mcp._mcp_server.version = __version__
 
 _CONFIG: AppConfig | None = None
 _CLIENTS: dict[str, QBClient] = {}
