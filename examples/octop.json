@@ -1,0 +1,11 @@
+{
+  "servers": {
+    "qbittorrent": {
+      "transport": "stdio",
+      "command": "qb-mcp",
+      "env": {
+        "QB_MCP_CONFIG": "/absolute/path/to/.instances.json"
+      }
+    }
+  }
+}

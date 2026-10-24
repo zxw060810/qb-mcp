@@ -1,0 +1,54 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "qb-mcp"
+version = "0.1.0"
+description = "MCP server for qBittorrent - manage torrents with natural language"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.10"
+authors = [{ name = "zxw060810" }]
+keywords = ["mcp", "qbittorrent", "torrent", "ai", "llm", "model-context-protocol"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: System :: Networking",
+  "Typing :: Typed",
+]
+dependencies = ["mcp>=1.0", "requests>=2.31"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.5", "mypy>=1.10", "types-requests"]
+
+[project.scripts]
+qb-mcp = "qb_mcp.server:main"
+
+[project.urls]
+Homepage = "https://github.com/zxw060810/qb-mcp"
+Issues = "https://github.com/zxw060810/qb-mcp/issues"
+Changelog = "https://github.com/zxw060810/qb-mcp/blob/main/CHANGELOG.md"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/qb_mcp"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_unused_ignores = true
+warn_return_any = true
+disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

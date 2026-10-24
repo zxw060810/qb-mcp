@@ -1,0 +1,16 @@
+{
+  "instances": {
+    "flynn": {
+      "label": "飞牛",
+      "url": "http://192.0.2.11:8080",
+      "username": "admin",
+      "password": "${QB_PASS_FLYNN}"
+    },
+    "qnap": {
+      "label": "QNAP",
+      "url": "http://192.168.1.100:8080",
+      "username": "admin",
+      "password": "${QB_PASS_QNAP}"
+    }
+  }
+}
