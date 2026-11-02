@@ -24,7 +24,7 @@ classifiers = [
 dependencies = ["mcp>=1.0", "requests>=2.31"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.5", "mypy>=1.10", "types-requests"]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "pytest-cov>=5", "ruff>=0.5", "mypy>=1.10", "types-requests"]
 
 [project.scripts]
 qb-mcp = "qb_mcp.server:main"
