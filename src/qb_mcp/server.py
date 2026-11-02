@@ -12,28 +12,66 @@ Write (state-changing)
 from __future__ import annotations
 
 import argparse
+import importlib
 import sys
 from typing import Any
-
-try:  # pragma: no cover - import guard
-    from mcp.server.fastmcp import FastMCP
-except ImportError:  # pragma: no cover
-    print(
-        "qb-mcp requires the 'mcp' package. Install it with: pip install mcp",
-        file=sys.stderr,
-    )
-    raise
 
 from . import __version__
 from .client import QBClient, QBError
 from .config import AppConfig, ConfigError, InstanceConfig, load_config
 
-mcp = FastMCP("qb-mcp")
-# FastMCP exposes no version argument and its low-level server falls back to
-# the mcp package version, so clients would see something like "1.28.1".
-# Pin it to ours so the handshake reports the real thing.
-if getattr(mcp, "_mcp_server", None) is not None:
-    mcp._mcp_server.version = __version__
+
+# mcp 2.0 renamed FastMCP to MCPServer and moved version/host/port handling
+# around, so support both majors instead of pinning users to one of them.
+# The lookup is dynamic so static type checkers do not have to see both
+# branches at once (they disagree between versions).
+def _load_server_class() -> tuple[Any, bool]:
+    """Return (server class, is_mcp_v2).
+
+    Raises:
+        ImportError: when neither mcp major provides a server class.
+    """
+    try:
+        module = importlib.import_module("mcp.server.mcpserver")
+        return module.MCPServer, True
+    except ImportError:
+        pass
+    try:
+        module = importlib.import_module("mcp.server.fastmcp")
+        return module.FastMCP, False
+    except (ImportError, ModuleNotFoundError) as exc:
+        print(
+            "qb-mcp requires the 'mcp' package (1.x or 2.x). "
+            "Install it with: pip install mcp",
+            file=sys.stderr,
+        )
+        raise ImportError("mcp is not installed") from exc
+
+
+try:
+    _Server, _MCP_V2 = _load_server_class()
+except ImportError:  # pragma: no cover
+    raise SystemExit(1) from None
+
+
+
+def _create_server() -> Any:
+    """Build the MCP server, reporting our own version to clients.
+
+    mcp 2.x takes ``version`` as a constructor argument. mcp 1.x has no such
+    argument and falls back to the mcp package version, so pin the low-level
+    server afterwards - otherwise clients see e.g. "1.28.1".
+    """
+    if _MCP_V2:
+        return _Server("qb-mcp", version=__version__)
+    server = _Server("qb-mcp")
+    lowlevel = getattr(server, "_mcp_server", None)
+    if lowlevel is not None:
+        lowlevel.version = __version__
+    return server
+
+
+mcp = _create_server()
 
 _CONFIG: AppConfig | None = None
 _CLIENTS: dict[str, QBClient] = {}
@@ -660,9 +698,13 @@ def main() -> None:
 
     if args.transport == "stdio":
         mcp.run()
+    elif _MCP_V2:
+        mcp.run(transport="streamable-http", host=args.host, port=args.port)
     else:
-        mcp.settings.host = args.host
-        mcp.settings.port = args.port
+        settings = getattr(mcp, "settings", None)
+        if settings is not None:
+            settings.host = args.host
+            settings.port = args.port
         mcp.run(transport="streamable-http")
 
 
