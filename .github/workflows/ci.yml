@@ -30,7 +30,7 @@ jobs:
       # Fail fast if the interpreter is not the clean shape we think it is
       # (mcp major version, package resolves to this checkout, test count).
       - name: Environment gate
-        run: python scripts/env_check.py --env A --no-net --expect-tests 69
+        run: python scripts/env_check.py --env A --no-net --expect-tests 123
 
       - name: "Class A - offline behaviour"
         run: pytest -q --ignore=tests/live --cov=qb_mcp --cov-report=term-missing
