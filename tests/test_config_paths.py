@@ -37,13 +37,12 @@ def test_environment_variable_wins_over_the_default_name(tmp_path, monkeypatch) 
 
 def test_default_name_is_used_when_no_env_is_set(tmp_path, monkeypatch) -> None:
     monkeypatch.delenv(cfg.CONFIG_ENV_VAR, raising=False)
-    for name in cfg.DEFAULT_CONFIG_NAMES[1:]:
-        monkeypatch.setattr(cfg, "DEFAULT_CONFIG_NAMES", [cfg.DEFAULT_CONFIG_NAMES[0]])
-        break
-    target = _write(tmp_path / cfg.DEFAULT_CONFIG_NAMES[0], VALID)
+    only = cfg.DEFAULT_CONFIG_NAMES[0]
+    monkeypatch.setattr(cfg, "DEFAULT_CONFIG_NAMES", [only])
+    _write(tmp_path / only, VALID)
     monkeypatch.chdir(tmp_path)
 
-    assert cfg.find_config_path() == Path(cfg.DEFAULT_CONFIG_NAMES[0])
+    assert cfg.find_config_path() == Path(only)
 
 
 def test_missing_everywhere_lists_what_was_searched(tmp_path, monkeypatch) -> None:

@@ -91,7 +91,12 @@ def test_request_reports_a_transport_failure(client) -> None:
 
 def test_retry_reports_a_transport_failure(client) -> None:
     qb, _ = client(
-        [Resp(200, "Ok."), Resp(401, "Forbidden"), Resp(200, "Ok."), requests.ConnectionError("boom")]
+        [
+            Resp(200, "Ok."),
+            Resp(401, "Forbidden"),
+            Resp(200, "Ok."),
+            requests.ConnectionError("boom"),
+        ]
     )
 
     with pytest.raises(QBError) as excinfo:
