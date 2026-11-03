@@ -39,6 +39,7 @@ class RecordQB:
         self._props = props if props is not None else {}
         self._trackers = trackers if trackers is not None else []
         self.posts: list[tuple[str, Any]] = []
+        self.post_kwargs: list[dict[str, Any]] = []
         self.gets: list[tuple[str, dict[str, Any]]] = []
         self.torrent_calls: list[dict[str, Any]] = []
 
@@ -52,8 +53,9 @@ class RecordQB:
     def transfer_info(self) -> dict[str, Any]:
         return self._transfer
 
-    def post(self, path: str, data: Any = None, **_kwargs: Any) -> None:
+    def post(self, path: str, data: Any = None, **kwargs: Any) -> None:
         self.posts.append((path, data))
+        self.post_kwargs.append(kwargs)
 
     def get(self, path: str, **params: Any) -> Any:
         self.gets.append((path, params))
@@ -308,7 +310,7 @@ def test_add_uploads_a_local_torrent_file(wire, tmp_path: Path) -> None:
 
     _path, data = stub.posts[0]
     assert data["paused"] == "false"
-    assert "files" in data
+    assert "files" in stub.post_kwargs[0]
 
 
 def test_add_rejects_an_unreadable_source(wire) -> None:
