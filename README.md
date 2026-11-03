@@ -2,14 +2,17 @@
 
 **An MCP server for qBittorrent — manage torrents with natural language.**
 
-[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
+[![CI](https://github.com/zxw060810/qb-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/zxw060810/qb-mcp/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/qb-mcp.svg)](https://pypi.org/project/qb-mcp/)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://github.com/zxw060810/qb-mcp/blob/main/pyproject.toml)
+[![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)](https://github.com/zxw060810/qb-mcp/blob/main/docs/TESTLIST.md)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/zxw060810/qb-mcp/blob/main/LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-streamable%20http%20%7C%20stdio-8b5cf6.svg)](https://modelcontextprotocol.io)
 
 > This is an unofficial project. It is not affiliated with, endorsed by, or
 > supported by the qBittorrent project.
 
-**English** | [简体中文](README.zh-CN.md)
+**English** | [简体中文](https://github.com/zxw060810/qb-mcp/blob/main/README.zh-CN.md)
 
 `qb-mcp` wraps the qBittorrent WebUI API v2 and exposes it as eleven tools that
 an AI agent can call. It manages **any number of instances**, each with its own
@@ -184,4 +187,4 @@ Tests mock the qBittorrent API; no live instance is required.
 
 ## License
 
-[Apache-2.0](LICENSE)
+[Apache-2.0](https://github.com/zxw060810/qb-mcp/blob/main/LICENSE)

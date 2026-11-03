@@ -2,13 +2,16 @@
 
 **qBittorrent 的 MCP 服务器 —— 用自然语言管理种子。**
 
-[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
+[![CI](https://github.com/zxw060810/qb-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/zxw060810/qb-mcp/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/qb-mcp.svg)](https://pypi.org/project/qb-mcp/)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://github.com/zxw060810/qb-mcp/blob/main/pyproject.toml)
+[![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)](https://github.com/zxw060810/qb-mcp/blob/main/docs/TESTLIST.md)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/zxw060810/qb-mcp/blob/main/LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-streamable%20http%20%7C%20stdio-8b5cf6.svg)](https://modelcontextprotocol.io)
 
 > 本项目非官方项目，与 qBittorrent 团队无关，也未获其背书或支持。
 
-**English** | [简体中文](README.zh-CN.md)
+[English](https://github.com/zxw060810/qb-mcp/blob/main/README.md) | **简体中文**
 
 `qb-mcp` 封装 qBittorrent WebUI API v2，把它变成 11 个 AI 智能体可以调用的工具。
 它支持**任意多个实例**，每个实例有自己的账号密码，所以一个智能体可以同时管理家里的 NAS 和远程盒子。
@@ -175,4 +178,4 @@ pytest
 
 ## 许可
 
-[Apache-2.0](LICENSE)
+[Apache-2.0](https://github.com/zxw060810/qb-mcp/blob/main/LICENSE)

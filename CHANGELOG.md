@@ -5,6 +5,20 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-11-03
+
+### Fixed
+
+- README links are now absolute, so they resolve on the PyPI project page.
+  Previously the "简体中文" switcher and the LICENSE link pointed at relative
+  paths that only exist in the repository.
+- The Chinese README's language switcher pointed at itself instead of the
+  English page.
+
+### Changed
+
+- Added CI, PyPI, coverage and license badges.
+
 ## [0.1.0] - 2026-11-03
 
 First public release.
@@ -70,4 +84,5 @@ Two more issues fixed during bring-up against real instances:
 - CI also runs an environment gate that fails the build when the interpreter is
   not the clean shape the tests assume.
 
+[0.1.1]: https://github.com/zxw060810/qb-mcp/releases/tag/v0.1.1
 [0.1.0]: https://github.com/zxw060810/qb-mcp/releases/tag/v0.1.0
