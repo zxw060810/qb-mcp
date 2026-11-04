@@ -142,8 +142,20 @@ def gate_03() -> Result:
     return Result("TC-ENV-03", "qb_mcp importable", PASS, str(origin))
 
 
+def _expected_test_count(cli_value: int) -> tuple[int, str]:
+    """用例总数以 ``tests/EXPECTED_COUNT`` 为准（跟着测试一起改），CLI 值只作兜底。"""
+    count_file = REPO / "tests" / "EXPECTED_COUNT"
+    if count_file.exists():
+        try:
+            return int(count_file.read_text(encoding="utf-8").strip()), str(count_file)
+        except ValueError:
+            pass
+    return cli_value, "--expect-tests"
+
+
 def gate_04(expect_tests: int) -> Result:
     """TC-ENV-04: pytest collects the expected number of cases."""
+    expect_tests, source = _expected_test_count(expect_tests)
     try:
         proc = subprocess.run(
             [sys.executable, "-m", "pytest", "--collect-only", "-q"],
@@ -172,9 +184,11 @@ def gate_04(expect_tests: int) -> Result:
             "TC-ENV-04",
             "test count",
             FAIL,
-            f"collected {collected}, expected {expect_tests} | {hint}",
+            f"collected {collected}, expected {expect_tests} (per {source}) | {hint}",
         )
-    return Result("TC-ENV-04", "test count", PASS, f"{collected} tests collected")
+    return Result(
+        "TC-ENV-04", "test count", PASS, f"{collected} tests collected (per {source})"
+    )
 
 
 def gate_05(instances_path: Path | None) -> Result:
