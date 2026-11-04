@@ -42,6 +42,7 @@ class RecordQB:
         self.post_kwargs: list[dict[str, Any]] = []
         self.gets: list[tuple[str, dict[str, Any]]] = []
         self.torrent_calls: list[dict[str, Any]] = []
+        self._transfer_reads = 0
 
     def version(self) -> str:
         return self._version
@@ -51,6 +52,11 @@ class RecordQB:
         return self._torrents
 
     def transfer_info(self) -> dict[str, Any]:
+        # 允许传一个序列，模拟"写入前 / 写入后"的两次读回。
+        if isinstance(self._transfer, list):
+            index = min(self._transfer_reads, len(self._transfer) - 1)
+            self._transfer_reads += 1
+            return self._transfer[index]
         return self._transfer
 
     def post(self, path: str, data: Any = None, **kwargs: Any) -> None:
@@ -173,17 +179,130 @@ def test_detail_surfaces_lookup_errors(wire) -> None:
     assert out.startswith("ERROR:")
 
 
+# -- qb_detail 脱敏（D7） ---------------------------------------------------
+
+PRIVATE_TRACKER = "https://tracker.example/announce/SECRET_PASSKEY?credential=xyz"
+
+
+def test_detail_hides_tracker_path_and_passkey_by_default(wire) -> None:
+    wire(
+        RecordQB(
+            props={"name": "Private"},
+            trackers=[{"status": 2, "num_peers": 1, "url": PRIVATE_TRACKER}],
+        )
+    )
+
+    out = server.qb_detail("test", hash="a" * 40)
+
+    assert "https://tracker.example" in out
+    for secret in ("SECRET_PASSKEY", "credential", "xyz"):
+        assert secret not in out
+
+
+def test_detail_keeps_status_and_peer_count_after_redaction(wire) -> None:
+    wire(
+        RecordQB(
+            props={"name": "Private"},
+            trackers=[{"status": 2, "num_peers": 5, "url": PRIVATE_TRACKER}],
+        )
+    )
+
+    out = server.qb_detail("test", hash="a" * 40)
+
+    assert "peers=5" in out
+
+
+def test_detail_reveals_the_full_url_only_when_asked(wire) -> None:
+    wire(
+        RecordQB(
+            props={"name": "Private"},
+            trackers=[{"status": 2, "num_peers": 1, "url": PRIVATE_TRACKER}],
+        )
+    )
+
+    out = server.qb_detail("test", hash="a" * 40, show_tracker_urls=True)
+
+    assert PRIVATE_TRACKER in out
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("https://tracker.example/announce/KEY", "https://tracker.example"),
+        ("http://tracker.example:8080/a?b=c", "http://tracker.example:8080"),
+        ("", "(no url)",
+        ),
+        ("not-a-url", "(hidden)"),
+    ],
+)
+def test_redact_tracker_url(raw: str, expected: str) -> None:
+    assert server.redact_tracker_url(raw) == expected
+
+
+# -- qb_list 筛选白名单（D6） ----------------------------------------------
+
+
+def test_list_translates_paused_for_5x(wire) -> None:
+    stub = wire(RecordQB(torrents=[_torrent()], version="v5.2.4"))
+
+    server.qb_list("test", filter="paused")
+
+    assert stub.torrent_calls[0]["filter"] == "stopped"
+
+
+def test_list_passes_paused_through_on_4x(wire) -> None:
+    stub = wire(RecordQB(torrents=[_torrent()], version="v4.6.4"))
+
+    server.qb_list("test", filter="paused")
+
+    assert stub.torrent_calls[0]["filter"] == "paused"
+
+
+def test_list_rejects_an_unknown_filter_without_calling_the_api(wire) -> None:
+    # 服务端对未知筛选值不报错而是返回全部，透传等于静默欺骗。
+    stub = wire(RecordQB(torrents=[_torrent()], version="v5.2.4"))
+
+    out = server.qb_list("test", filter="zzz")
+
+    assert out.startswith("ERROR:")
+    assert "unknown filter" in out
+    assert stub.torrent_calls == []
+
+
 # -- qb_control ------------------------------------------------------------
 
 
-def test_control_pause_hits_the_pause_endpoint(wire) -> None:
-    stub = wire(RecordQB(torrents=[_torrent()]))
+@pytest.mark.parametrize(
+    ("version", "route"),
+    [
+        ("v4.6.4", "/api/v2/torrents/pause"),
+        ("v5.2.4", "/api/v2/torrents/stop"),
+    ],
+)
+def test_control_pause_uses_the_version_specific_endpoint(wire, version, route) -> None:
+    # D1：5.x 上 pause/resume 已被移除（实测 404），必须改走 stop/start。
+    stub = wire(RecordQB(torrents=[_torrent()], version=version))
 
     out = server.qb_control("test", "pause")
 
-    assert stub.posts[0][0] == "/api/v2/torrents/pause"
+    assert stub.posts[0][0] == route
     assert stub.posts[0][1] == {"hashes": "a" * 40}
     assert "applied to 1 torrent" in out
+
+
+@pytest.mark.parametrize(
+    ("version", "route"),
+    [
+        ("v4.6.4", "/api/v2/torrents/resume"),
+        ("v5.0.0", "/api/v2/torrents/start"),
+    ],
+)
+def test_control_resume_uses_the_version_specific_endpoint(wire, version, route) -> None:
+    stub = wire(RecordQB(torrents=[_torrent()], version=version))
+
+    server.qb_control("test", "resume")
+
+    assert stub.posts[0][0] == route
 
 
 def test_control_force_start_sends_the_value_flag(wire) -> None:
@@ -223,18 +342,61 @@ def test_set_limit_requires_at_least_one_side(wire) -> None:
     assert server.qb_set_limit("test").startswith("ERROR:")
 
 
-def test_set_limit_global_posts_to_transfer_endpoints(wire) -> None:
-    stub = wire(RecordQB(transfer={"up_limit": 0, "dl_limit": 0}))
+def test_set_limit_global_posts_to_set_endpoints(wire) -> None:
+    # D2：写入端点是 setUploadLimit/setDownloadLimit；uploadLimit 是读取端点，
+    # 对它 POST 会返回 200 但什么都不做（实测于 5.2.4）。
+    stub = wire(
+        RecordQB(
+            transfer=[
+                {"up_rate_limit": 0, "dl_rate_limit": 0},
+                {"up_rate_limit": 1024, "dl_rate_limit": 2048},
+            ]
+        )
+    )
 
-    server.qb_set_limit("test", up=1024, dl=2048)
+    out = server.qb_set_limit("test", up=1024, dl=2048)
 
     paths = [p for p, _ in stub.posts]
-    assert paths == ["/api/v2/transfer/uploadLimit", "/api/v2/transfer/downloadLimit"]
+    assert paths == ["/api/v2/transfer/setUploadLimit", "/api/v2/transfer/setDownloadLimit"]
     assert stub.posts[0][1] == {"limit": "1024"}
+    assert "speed limit updated" in out
+
+
+def test_set_limit_reports_when_the_write_had_no_effect(wire) -> None:
+    # 写接口对任何情况都返回 200，只能靠读回判断。
+    wire(
+        RecordQB(
+            transfer=[
+                {"up_rate_limit": 0, "dl_rate_limit": 0},
+                {"up_rate_limit": 0, "dl_rate_limit": 0},
+            ]
+        )
+    )
+
+    out = server.qb_set_limit("test", up=1048576)
+
+    assert out.startswith("ERROR:")
+    assert "did not take effect" in out
+
+
+def test_set_limit_treats_zero_and_minus_one_as_the_same(wire) -> None:
+    stub = wire(
+        RecordQB(
+            transfer=[
+                {"up_rate_limit": 409600, "dl_rate_limit": 0},
+                {"up_rate_limit": -1, "dl_rate_limit": 0},
+            ]
+        )
+    )
+
+    out = server.qb_set_limit("test", up=0)
+
+    assert not out.startswith("ERROR:")
+    assert stub.posts[0][1] == {"limit": "-1"}
 
 
 def test_set_limit_per_torrent_posts_to_torrent_endpoints(wire) -> None:
-    stub = wire(RecordQB(transfer={"up_limit": 0, "dl_limit": 0}))
+    stub = wire(RecordQB(transfer={"up_rate_limit": 0, "dl_rate_limit": 0}))
 
     server.qb_set_limit("test", up=512, hashes=["c" * 40])
 
@@ -260,20 +422,61 @@ def test_set_share_requires_a_value(wire) -> None:
     assert out.startswith("ERROR:")
 
 
-def test_set_share_ratio_only_fills_in_unlimited_seeding_time(wire) -> None:
+def test_set_share_always_sends_the_full_parameter_superset(wire) -> None:
+    # D3/D4：4.6 要求 4 个参数、5.2 要求 5 个、5.3 要求 6 个；超集一次通吃。
     stub = wire(RecordQB())
 
     server.qb_set_share("test", hashes=["a" * 40], ratio=2.0)
 
-    assert stub.posts[0][1] == {"hashes": "a" * 40, "ratioLimit": "2.0", "seedingTimeLimit": "-2"}
+    payload = stub.posts[0][1]
+    assert payload["hashes"] == "a" * 40
+    assert payload["ratioLimit"] == "2.0"
+    assert payload["seedingTimeLimit"] == "-2"
+    assert payload["inactiveSeedingTimeLimit"] == "-2"
+    assert payload["shareLimitAction"] == "Stop"
+    assert payload["shareLimitsMode"] == "Default"
 
 
-def test_set_share_time_only_fills_in_unlimited_ratio(wire) -> None:
+def test_set_share_keeps_minutes_as_minutes(wire) -> None:
+    # 源码里 seedingTimeLimit 是分钟（比较时 ×60），不能再按秒透传。
     stub = wire(RecordQB())
 
-    server.qb_set_share("test", hashes=["a" * 40], seeding_time=86400)
+    server.qb_set_share("test", hashes=["a" * 40], seeding_time=60)
 
-    assert stub.posts[0][1] == {"hashes": "a" * 40, "seedingTimeLimit": "86400", "ratioLimit": "-2"}
+    payload = stub.posts[0][1]
+    assert payload["seedingTimeLimit"] == "60"
+    assert payload["ratioLimit"] == "-2"
+
+
+def test_set_share_rejects_destructive_actions(wire) -> None:
+    stub = wire(RecordQB())
+
+    out = server.qb_set_share("test", hashes=["a" * 40], ratio=1.0, action="remove_with_content")
+
+    assert out.startswith("ERROR:")
+    assert "qb_remove" in out
+    assert stub.posts == []
+
+
+def test_set_share_warns_when_auto_management_overrides_the_limit(wire) -> None:
+    stub = wire(
+        RecordQB(
+            torrents=[_torrent(auto_tmm=True, seeding_time_limit=-2)],
+        )
+    )
+
+    out = server.qb_set_share("test", hashes=["a" * 40], seeding_time=60)
+
+    assert "automatic torrent management" in out
+    assert stub.posts[0][0] == "/api/v2/torrents/setShareLimits"
+
+
+def test_set_share_flags_a_readback_mismatch(wire) -> None:
+    wire(RecordQB(torrents=[_torrent(auto_tmm=False, seeding_time_limit=999)]))
+
+    out = server.qb_set_share("test", hashes=["a" * 40], seeding_time=60)
+
+    assert "reads back 999" in out
 
 
 # -- qb_add ----------------------------------------------------------------

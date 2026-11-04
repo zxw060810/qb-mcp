@@ -283,3 +283,68 @@ K1 冒烟 2.x 未兼容 / G1 业务逻辑覆盖不足 / …
 | 日期 | 版本 | 变更 |
 |---|---|---|
 | 2026-10-26 | 1.0 | 首版：5 层结构、26 自动化 + 18 手工、4 项缺陷回归、7 项缺口登记 |
+
+---
+
+## 13. v0.2.0 追加用例（接口兼容性）
+
+> 详细的测试策略见 [`TESTPLAN-0.2.0.md`](./TESTPLAN-0.2.0.md)，接口契约见
+> [`COMPATIBILITY.md`](./COMPATIBILITY.md)。本节只登记用例与证据。
+
+### 13.1 用例清单
+
+| 组 | 前缀 | 数量 | 覆盖缺陷 |
+|---|---|---|---|
+| 能力判定 | `TC-CAP` | 34 | D1 D5 D6 |
+| 控制端点 | `TC-CTR` | 4 | D1 |
+| 限速 | `TC-LIM` | 5 | D2 |
+| 分享限制 | `TC-SHR` | 6 | D3 D4 |
+| 加种 | `TC-ADD` | 4 | D5 |
+| 筛选白名单 | `TC-LST` | 3 | D6 |
+| 脱敏 | `TC-SEC` | 6 | D7 |
+| 契约（逐 tag 生成） | `TC-CON` | 127 | AC-2 |
+| 实盘闭环 | `TC-LIVE` | 12 × 4 档 | D1 D2 D3 D4 D5 D6 |
+
+离线总量由 130 增至 **303**（`env_check.py --expect-tests 303`）。
+
+### 13.2 红 → 绿证据（先红后绿的实证）
+
+把 v0.2.0 的用例放在 **0.1.2 的代码**（`main` 分支 `5ebdd8c`）上运行：
+
+```
+17 failed, 29 passed
+```
+
+失败项与缺陷的对应关系：
+
+| 失败用例 | 现象 | 缺陷 |
+|---|---|---|
+| `test_control_pause_uses_the_version_specific_endpoint[v5.2.4-…/stop]` | 实际发出 `torrents/pause` | D1 |
+| `test_control_resume_uses_the_version_specific_endpoint[v5.0.0-…/start]` | 实际发出 `torrents/resume` | D1 |
+| `test_set_limit_global_posts_to_set_endpoints` | 实际发出 `transfer/uploadLimit` | D2 |
+| `test_set_limit_reports_when_the_write_had_no_effect` | 静默返回"已更新" | D2 |
+| `test_set_limit_treats_zero_and_minus_one_as_the_same` | 读回字段不存在 | D2 |
+| `test_set_share_always_sends_the_full_parameter_superset` | 只发 3 个参数（会被 400） | D3 |
+| `test_set_share_rejects_destructive_actions` | 无该保护 | D3 |
+| `test_set_share_warns_when_auto_management_overrides_the_limit` | 无读回校验 | D3 |
+| `test_set_share_flags_a_readback_mismatch` | 无读回校验 | D3 |
+| `test_list_translates_paused_for_5x` | 原样透传 `paused` | D6 |
+| `test_list_rejects_an_unknown_filter_without_calling_the_api` | 未知值直接发给服务端 | D6 |
+| 其余 6 条 | 同上组内 | D1–D7 |
+
+改完实现后同一批用例：**303 passed**，`ruff` 与 `mypy` 均通过。
+
+### 13.3 实盘与流水线
+
+| 项 | 状态 |
+|---|---|
+| 本地起容器 | **禁止**（方案硬约束），`tests/live` 无 `QB_TEST_URL` 时 skip |
+| 实盘四档 | 4.6.7 / 5.1.4 / 5.2.4 / 5.3.0，GitHub Actions 矩阵，`timeout-minutes: 25` |
+| 触发条件 | `pull_request` + `workflow_dispatch` + `main` |
+| 失败处理 | 不重试（唯一例外：容器 180 秒内未就绪），并上传容器日志与种子快照 |
+
+### 13.4 变更记录
+
+| 日期 | 版本 | 变更 |
+|---|---|---|
+| 2026-11-04 | 2.0 | 追加 §13：v0.2.0 接口兼容性用例、红→绿证据、实盘四档矩阵 |

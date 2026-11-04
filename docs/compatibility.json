@@ -1,0 +1,975 @@
+{
+  "source": "qbittorrent/qBittorrent 源码逐 tag 审计（WebUI 接口层）",
+  "integrity_check": "HTTP 200 + 最小字节数 + 关键符号存在；任一不满足记 unavailable，绝不填推断值",
+  "scanned_tags": 25,
+  "units": {
+    "transfer setUploadLimit/setDownloadLimit.limit": "bytes/second；0 会被服务端转成 -1（不限）",
+    "torrents setUploadLimit/setDownloadLimit.limit": "bytes/second",
+    "setShareLimits.seedingTimeLimit": "分钟（源码 maxSeedingTimeValue * 60 换算成秒）",
+    "setShareLimits.inactiveSeedingTimeLimit": "分钟",
+    "setShareLimits.ratioLimit": "分享率倍数（浮点）",
+    "sentinels": "ratio/seeding/inactive 三个字段：-2 = 用全局限制，-1 = 不限",
+    "transfer/info.up_rate_limit|dl_rate_limit": "bytes/second，<=0 表示不限"
+  },
+  "enums": {
+    "ShareLimitAction": {
+      "Default": -1,
+      "Stop": 0,
+      "Remove": 1,
+      "EnableSuperSeeding": 2,
+      "RemoveWithContent": 3,
+      "introduced": "5.2.0（成为必填参数）",
+      "defined_in": "src/base/bittorrent/sharelimits.h (5.2+)"
+    },
+    "ShareLimitsMode": {
+      "Default": -1,
+      "MatchAny": 0,
+      "MatchAll": 1,
+      "introduced": "5.3.0（成为必填参数）",
+      "defined_in": "src/base/bittorrent/sharelimits.h"
+    }
+  },
+  "stable_across_4.6.7_to_5.3.0": [
+    "torrents/setUploadLimit|setDownloadLimit：必需 hashes,limit",
+    "torrents/delete：必需 hashes,deleteFiles",
+    "torrents/setCategory：必需 hashes,category",
+    "torrents/addTags：必需 hashes,tags",
+    "torrents/setForceStart：必需 hashes,value",
+    "torrents/reannounce：必需 hashes",
+    "transfer/setUploadLimit|setDownloadLimit：必需 limit"
+  ],
+  "tags": [
+    {
+      "tag": "release-4.6.0",
+      "add_pause_field": "paused",
+      "control_endpoints": [
+        "pause",
+        "resume"
+      ],
+      "filter_vocab": [
+        "active",
+        "checking",
+        "completed",
+        "downloading",
+        "errored",
+        "inactive",
+        "moving",
+        "paused",
+        "resumed",
+        "seeding",
+        "stalled",
+        "stalled_downloading",
+        "stalled_uploading"
+      ],
+      "share_limit_required": [
+        "hashes",
+        "inactiveSeedingTimeLimit",
+        "ratioLimit",
+        "seedingTimeLimit"
+      ],
+      "global_limit_endpoints": [
+        "setDownloadLimit",
+        "setUploadLimit"
+      ],
+      "state_strings": [
+        "pausedDL",
+        "pausedUP"
+      ]
+    },
+    {
+      "tag": "release-4.6.1",
+      "add_pause_field": "paused",
+      "control_endpoints": [
+        "pause",
+        "resume"
+      ],
+      "filter_vocab": [
+        "active",
+        "checking",
+        "completed",
+        "downloading",
+        "errored",
+        "inactive",
+        "moving",
+        "paused",
+        "resumed",
+        "seeding",
+        "stalled",
+        "stalled_downloading",
+        "stalled_uploading"
+      ],
+      "share_limit_required": [
+        "hashes",
+        "inactiveSeedingTimeLimit",
+        "ratioLimit",
+        "seedingTimeLimit"
+      ],
+      "global_limit_endpoints": [
+        "setDownloadLimit",
+        "setUploadLimit"
+      ],
+      "state_strings": [
+        "pausedDL",
+        "pausedUP"
+      ]
+    },
+    {
+      "tag": "release-4.6.2",
+      "add_pause_field": "paused",
+      "control_endpoints": [
+        "pause",
+        "resume"
+      ],
+      "filter_vocab": [
+        "active",
+        "checking",
+        "completed",
+        "downloading",
+        "errored",
+        "inactive",
+        "moving",
+        "paused",
+        "resumed",
+        "seeding",
+        "stalled",
+        "stalled_downloading",
+        "stalled_uploading"
+      ],
+      "share_limit_required": [
+        "hashes",
+        "inactiveSeedingTimeLimit",
+        "ratioLimit",
+        "seedingTimeLimit"
+      ],
+      "global_limit_endpoints": [
+        "setDownloadLimit",
+        "setUploadLimit"
+      ],
+      "state_strings": [
+        "pausedDL",
+        "pausedUP"
+      ]
+    },
+    {
+      "tag": "release-4.6.3",
+      "add_pause_field": "paused",
+      "control_endpoints": [
+        "pause",
+        "resume"
+      ],
+      "filter_vocab": [
+        "active",
+        "checking",
+        "completed",
+        "downloading",
+        "errored",
+        "inactive",
+        "moving",
+        "paused",
+        "resumed",
+        "seeding",
+        "stalled",
+        "stalled_downloading",
+        "stalled_uploading"
+      ],
+      "share_limit_required": [
+        "hashes",
+        "inactiveSeedingTimeLimit",
+        "ratioLimit",
+        "seedingTimeLimit"
+      ],
+      "global_limit_endpoints": [
+        "setDownloadLimit",
+        "setUploadLimit"
+      ],
+      "state_strings": [
+        "pausedDL",
+        "pausedUP"
+      ]
+    },
+    {
+      "tag": "release-4.6.4",
+      "add_pause_field": "paused",
+      "control_endpoints": [
+        "pause",
+        "resume"
+      ],
+      "filter_vocab": [
+        "active",
+        "checking",
+        "completed",
+        "downloading",
+        "errored",
+        "inactive",
+        "moving",
+        "paused",
+        "resumed",
+        "seeding",
+        "stalled",
+        "stalled_downloading",
+        "stalled_uploading"
+      ],
+      "share_limit_required": [
+        "hashes",
+        "inactiveSeedingTimeLimit",
+        "ratioLimit",
+        "seedingTimeLimit"
+      ],
+      "global_limit_endpoints": [
+        "setDownloadLimit",
+        "setUploadLimit"
+      ],
+      "state_strings": [
+        "pausedDL",
+        "pausedUP"
+      ]
+    },
+    {
+      "tag": "release-4.6.5",
+      "add_pause_field": "paused",
+      "control_endpoints": [
+        "pause",
+        "resume"
+      ],
+      "filter_vocab": [
+        "active",
+        "checking",
+        "completed",
+        "downloading",
+        "errored",
+        "inactive",
+        "moving",
+        "paused",
+        "resumed",
+        "seeding",
+        "stalled",
+        "stalled_downloading",
+        "stalled_uploading"
+      ],
+      "share_limit_required": [
+        "hashes",
+        "inactiveSeedingTimeLimit",
+        "ratioLimit",
+        "seedingTimeLimit"
+      ],
+      "global_limit_endpoints": [
+        "setDownloadLimit",
+        "setUploadLimit"
+      ],
+      "state_strings": [
+        "pausedDL",
+        "pausedUP"
+      ]
+    },
+    {
+      "tag": "release-4.6.6",
+      "add_pause_field": "paused",
+      "control_endpoints": [
+        "pause",
+        "resume"
+      ],
+      "filter_vocab": [
+        "active",
+        "checking",
+        "completed",
+        "downloading",
+        "errored",
+        "inactive",
+        "moving",
+        "paused",
+        "resumed",
+        "seeding",
+        "stalled",
+        "stalled_downloading",
+        "stalled_uploading"
+      ],
+      "share_limit_required": [
+        "hashes",
+        "inactiveSeedingTimeLimit",
+        "ratioLimit",
+        "seedingTimeLimit"
+      ],
+      "global_limit_endpoints": [
+        "setDownloadLimit",
+        "setUploadLimit"
+      ],
+      "state_strings": [
+        "pausedDL",
+        "pausedUP"
+      ]
+    },
+    {
+      "tag": "release-4.6.7",
+      "add_pause_field": "paused",
+      "control_endpoints": [
+        "pause",
+        "resume"
+      ],
+      "filter_vocab": [
+        "active",
+        "checking",
+        "completed",
+        "downloading",
+        "errored",
+        "inactive",
+        "moving",
+        "paused",
+        "resumed",
+        "seeding",
+        "stalled",
+        "stalled_downloading",
+        "stalled_uploading"
+      ],
+      "share_limit_required": [
+        "hashes",
+        "inactiveSeedingTimeLimit",
+        "ratioLimit",
+        "seedingTimeLimit"
+      ],
+      "global_limit_endpoints": [
+        "setDownloadLimit",
+        "setUploadLimit"
+      ],
+      "state_strings": [
+        "pausedDL",
+        "pausedUP"
+      ]
+    },
+    {
+      "tag": "release-5.0.0",
+      "add_pause_field": "stopped",
+      "control_endpoints": [
+        "start",
+        "stop"
+      ],
+      "filter_vocab": [
+        "active",
+        "checking",
+        "completed",
+        "downloading",
+        "errored",
+        "inactive",
+        "moving",
+        "running",
+        "seeding",
+        "stalled",
+        "stalled_downloading",
+        "stalled_uploading",
+        "stopped"
+      ],
+      "share_limit_required": [
+        "hashes",
+        "inactiveSeedingTimeLimit",
+        "ratioLimit",
+        "seedingTimeLimit"
+      ],
+      "global_limit_endpoints": [
+        "setDownloadLimit",
+        "setUploadLimit"
+      ],
+      "state_strings": [
+        "stoppedDL",
+        "stoppedUP"
+      ]
+    },
+    {
+      "tag": "release-5.0.1",
+      "add_pause_field": "stopped",
+      "control_endpoints": [
+        "start",
+        "stop"
+      ],
+      "filter_vocab": [
+        "active",
+        "checking",
+        "completed",
+        "downloading",
+        "errored",
+        "inactive",
+        "moving",
+        "running",
+        "seeding",
+        "stalled",
+        "stalled_downloading",
+        "stalled_uploading",
+        "stopped"
+      ],
+      "share_limit_required": [
+        "hashes",
+        "inactiveSeedingTimeLimit",
+        "ratioLimit",
+        "seedingTimeLimit"
+      ],
+      "global_limit_endpoints": [
+        "setDownloadLimit",
+        "setUploadLimit"
+      ],
+      "state_strings": [
+        "stoppedDL",
+        "stoppedUP"
+      ]
+    },
+    {
+      "tag": "release-5.0.2",
+      "add_pause_field": "stopped",
+      "control_endpoints": [
+        "start",
+        "stop"
+      ],
+      "filter_vocab": [
+        "active",
+        "checking",
+        "completed",
+        "downloading",
+        "errored",
+        "inactive",
+        "moving",
+        "running",
+        "seeding",
+        "stalled",
+        "stalled_downloading",
+        "stalled_uploading",
+        "stopped"
+      ],
+      "share_limit_required": [
+        "hashes",
+        "inactiveSeedingTimeLimit",
+        "ratioLimit",
+        "seedingTimeLimit"
+      ],
+      "global_limit_endpoints": [
+        "setDownloadLimit",
+        "setUploadLimit"
+      ],
+      "state_strings": [
+        "stoppedDL",
+        "stoppedUP"
+      ]
+    },
+    {
+      "tag": "release-5.0.3",
+      "add_pause_field": "stopped",
+      "control_endpoints": [
+        "start",
+        "stop"
+      ],
+      "filter_vocab": [
+        "active",
+        "checking",
+        "completed",
+        "downloading",
+        "errored",
+        "inactive",
+        "moving",
+        "running",
+        "seeding",
+        "stalled",
+        "stalled_downloading",
+        "stalled_uploading",
+        "stopped"
+      ],
+      "share_limit_required": [
+        "hashes",
+        "inactiveSeedingTimeLimit",
+        "ratioLimit",
+        "seedingTimeLimit"
+      ],
+      "global_limit_endpoints": [
+        "setDownloadLimit",
+        "setUploadLimit"
+      ],
+      "state_strings": [
+        "stoppedDL",
+        "stoppedUP"
+      ]
+    },
+    {
+      "tag": "release-5.0.4",
+      "add_pause_field": "stopped",
+      "control_endpoints": [
+        "start",
+        "stop"
+      ],
+      "filter_vocab": [
+        "active",
+        "checking",
+        "completed",
+        "downloading",
+        "errored",
+        "inactive",
+        "moving",
+        "running",
+        "seeding",
+        "stalled",
+        "stalled_downloading",
+        "stalled_uploading",
+        "stopped"
+      ],
+      "share_limit_required": [
+        "hashes",
+        "inactiveSeedingTimeLimit",
+        "ratioLimit",
+        "seedingTimeLimit"
+      ],
+      "global_limit_endpoints": [
+        "setDownloadLimit",
+        "setUploadLimit"
+      ],
+      "state_strings": [
+        "stoppedDL",
+        "stoppedUP"
+      ]
+    },
+    {
+      "tag": "release-5.0.5",
+      "add_pause_field": "stopped",
+      "control_endpoints": [
+        "start",
+        "stop"
+      ],
+      "filter_vocab": [
+        "active",
+        "checking",
+        "completed",
+        "downloading",
+        "errored",
+        "inactive",
+        "moving",
+        "running",
+        "seeding",
+        "stalled",
+        "stalled_downloading",
+        "stalled_uploading",
+        "stopped"
+      ],
+      "share_limit_required": [
+        "hashes",
+        "inactiveSeedingTimeLimit",
+        "ratioLimit",
+        "seedingTimeLimit"
+      ],
+      "global_limit_endpoints": [
+        "setDownloadLimit",
+        "setUploadLimit"
+      ],
+      "state_strings": [
+        "stoppedDL",
+        "stoppedUP"
+      ]
+    },
+    {
+      "tag": "release-5.1.0",
+      "add_pause_field": "stopped",
+      "control_endpoints": [
+        "start",
+        "stop"
+      ],
+      "filter_vocab": [
+        "active",
+        "checking",
+        "completed",
+        "downloading",
+        "errored",
+        "inactive",
+        "moving",
+        "running",
+        "seeding",
+        "stalled",
+        "stalled_downloading",
+        "stalled_uploading",
+        "stopped"
+      ],
+      "share_limit_required": [
+        "hashes",
+        "inactiveSeedingTimeLimit",
+        "ratioLimit",
+        "seedingTimeLimit"
+      ],
+      "global_limit_endpoints": [
+        "setDownloadLimit",
+        "setUploadLimit"
+      ],
+      "state_strings": [
+        "stoppedDL",
+        "stoppedUP"
+      ]
+    },
+    {
+      "tag": "release-5.1.1",
+      "add_pause_field": "stopped",
+      "control_endpoints": [
+        "start",
+        "stop"
+      ],
+      "filter_vocab": [
+        "active",
+        "checking",
+        "completed",
+        "downloading",
+        "errored",
+        "inactive",
+        "moving",
+        "running",
+        "seeding",
+        "stalled",
+        "stalled_downloading",
+        "stalled_uploading",
+        "stopped"
+      ],
+      "share_limit_required": [
+        "hashes",
+        "inactiveSeedingTimeLimit",
+        "ratioLimit",
+        "seedingTimeLimit"
+      ],
+      "global_limit_endpoints": [
+        "setDownloadLimit",
+        "setUploadLimit"
+      ],
+      "state_strings": [
+        "stoppedDL",
+        "stoppedUP"
+      ]
+    },
+    {
+      "tag": "release-5.1.2",
+      "add_pause_field": "stopped",
+      "control_endpoints": [
+        "start",
+        "stop"
+      ],
+      "filter_vocab": [
+        "active",
+        "checking",
+        "completed",
+        "downloading",
+        "errored",
+        "inactive",
+        "moving",
+        "running",
+        "seeding",
+        "stalled",
+        "stalled_downloading",
+        "stalled_uploading",
+        "stopped"
+      ],
+      "share_limit_required": [
+        "hashes",
+        "inactiveSeedingTimeLimit",
+        "ratioLimit",
+        "seedingTimeLimit"
+      ],
+      "global_limit_endpoints": [
+        "setDownloadLimit",
+        "setUploadLimit"
+      ],
+      "state_strings": [
+        "stoppedDL",
+        "stoppedUP"
+      ]
+    },
+    {
+      "tag": "release-5.1.3",
+      "add_pause_field": "stopped",
+      "control_endpoints": [
+        "start",
+        "stop"
+      ],
+      "filter_vocab": [
+        "active",
+        "checking",
+        "completed",
+        "downloading",
+        "errored",
+        "inactive",
+        "moving",
+        "running",
+        "seeding",
+        "stalled",
+        "stalled_downloading",
+        "stalled_uploading",
+        "stopped"
+      ],
+      "share_limit_required": [
+        "hashes",
+        "inactiveSeedingTimeLimit",
+        "ratioLimit",
+        "seedingTimeLimit"
+      ],
+      "global_limit_endpoints": [
+        "setDownloadLimit",
+        "setUploadLimit"
+      ],
+      "state_strings": [
+        "stoppedDL",
+        "stoppedUP"
+      ]
+    },
+    {
+      "tag": "release-5.1.4",
+      "add_pause_field": "stopped",
+      "control_endpoints": [
+        "start",
+        "stop"
+      ],
+      "filter_vocab": [
+        "active",
+        "checking",
+        "completed",
+        "downloading",
+        "errored",
+        "inactive",
+        "moving",
+        "running",
+        "seeding",
+        "stalled",
+        "stalled_downloading",
+        "stalled_uploading",
+        "stopped"
+      ],
+      "share_limit_required": [
+        "hashes",
+        "inactiveSeedingTimeLimit",
+        "ratioLimit",
+        "seedingTimeLimit"
+      ],
+      "global_limit_endpoints": [
+        "setDownloadLimit",
+        "setUploadLimit"
+      ],
+      "state_strings": [
+        "stoppedDL",
+        "stoppedUP"
+      ]
+    },
+    {
+      "tag": "release-5.2.0",
+      "add_pause_field": "stopped",
+      "control_endpoints": [
+        "start",
+        "stop"
+      ],
+      "filter_vocab": [
+        "active",
+        "checking",
+        "completed",
+        "downloading",
+        "errored",
+        "inactive",
+        "moving",
+        "running",
+        "seeding",
+        "stalled",
+        "stalled_downloading",
+        "stalled_uploading",
+        "stopped"
+      ],
+      "share_limit_required": [
+        "hashes",
+        "inactiveSeedingTimeLimit",
+        "ratioLimit",
+        "seedingTimeLimit",
+        "shareLimitAction"
+      ],
+      "global_limit_endpoints": [
+        "setDownloadLimit",
+        "setUploadLimit"
+      ],
+      "state_strings": [
+        "stoppedDL",
+        "stoppedUP"
+      ]
+    },
+    {
+      "tag": "release-5.2.1",
+      "add_pause_field": "stopped",
+      "control_endpoints": [
+        "start",
+        "stop"
+      ],
+      "filter_vocab": [
+        "active",
+        "checking",
+        "completed",
+        "downloading",
+        "errored",
+        "inactive",
+        "moving",
+        "running",
+        "seeding",
+        "stalled",
+        "stalled_downloading",
+        "stalled_uploading",
+        "stopped"
+      ],
+      "share_limit_required": [
+        "hashes",
+        "inactiveSeedingTimeLimit",
+        "ratioLimit",
+        "seedingTimeLimit",
+        "shareLimitAction"
+      ],
+      "global_limit_endpoints": [
+        "setDownloadLimit",
+        "setUploadLimit"
+      ],
+      "state_strings": [
+        "stoppedDL",
+        "stoppedUP"
+      ]
+    },
+    {
+      "tag": "release-5.2.2",
+      "add_pause_field": "stopped",
+      "control_endpoints": [
+        "start",
+        "stop"
+      ],
+      "filter_vocab": [
+        "active",
+        "checking",
+        "completed",
+        "downloading",
+        "errored",
+        "inactive",
+        "moving",
+        "running",
+        "seeding",
+        "stalled",
+        "stalled_downloading",
+        "stalled_uploading",
+        "stopped"
+      ],
+      "share_limit_required": [
+        "hashes",
+        "inactiveSeedingTimeLimit",
+        "ratioLimit",
+        "seedingTimeLimit",
+        "shareLimitAction"
+      ],
+      "global_limit_endpoints": [
+        "setDownloadLimit",
+        "setUploadLimit"
+      ],
+      "state_strings": [
+        "stoppedDL",
+        "stoppedUP"
+      ]
+    },
+    {
+      "tag": "release-5.2.3",
+      "add_pause_field": "stopped",
+      "control_endpoints": [
+        "start",
+        "stop"
+      ],
+      "filter_vocab": [
+        "active",
+        "checking",
+        "completed",
+        "downloading",
+        "errored",
+        "inactive",
+        "moving",
+        "running",
+        "seeding",
+        "stalled",
+        "stalled_downloading",
+        "stalled_uploading",
+        "stopped"
+      ],
+      "share_limit_required": [
+        "hashes",
+        "inactiveSeedingTimeLimit",
+        "ratioLimit",
+        "seedingTimeLimit",
+        "shareLimitAction"
+      ],
+      "global_limit_endpoints": [
+        "setDownloadLimit",
+        "setUploadLimit"
+      ],
+      "state_strings": [
+        "stoppedDL",
+        "stoppedUP"
+      ]
+    },
+    {
+      "tag": "release-5.2.4",
+      "add_pause_field": "stopped",
+      "control_endpoints": [
+        "start",
+        "stop"
+      ],
+      "filter_vocab": [
+        "active",
+        "checking",
+        "completed",
+        "downloading",
+        "errored",
+        "inactive",
+        "moving",
+        "running",
+        "seeding",
+        "stalled",
+        "stalled_downloading",
+        "stalled_uploading",
+        "stopped"
+      ],
+      "share_limit_required": [
+        "hashes",
+        "inactiveSeedingTimeLimit",
+        "ratioLimit",
+        "seedingTimeLimit",
+        "shareLimitAction"
+      ],
+      "global_limit_endpoints": [
+        "setDownloadLimit",
+        "setUploadLimit"
+      ],
+      "state_strings": [
+        "stoppedDL",
+        "stoppedUP"
+      ]
+    },
+    {
+      "tag": "release-5.3.0",
+      "add_pause_field": "stopped",
+      "control_endpoints": [
+        "start",
+        "stop"
+      ],
+      "filter_vocab": [
+        "active",
+        "checking",
+        "completed",
+        "downloading",
+        "errored",
+        "inactive",
+        "moving",
+        "running",
+        "seeding",
+        "stalled",
+        "stalled_downloading",
+        "stalled_uploading",
+        "stopped"
+      ],
+      "share_limit_required": [
+        "hashes",
+        "inactiveSeedingTimeLimit",
+        "ratioLimit",
+        "seedingTimeLimit",
+        "shareLimitAction",
+        "shareLimitsMode"
+      ],
+      "global_limit_endpoints": [
+        "setDownloadLimit",
+        "setUploadLimit"
+      ],
+      "state_strings": [
+        "stoppedDL",
+        "stoppedUP"
+      ]
+    }
+  ]
+}

@@ -125,8 +125,15 @@ class QBClient:
                 ) from exc
 
         if response.status_code >= 400:
+            # 服务端的错误正文才是可用信息：5.x 会明确写出"缺少必需参数：xxx"，
+            # 只报 HTTP 状态码会让这类问题永远查不出来。
+            detail = (response.text or "").strip()
+            if len(detail) > 200:
+                detail = detail[:200] + "…"
+            suffix = f" - {detail}" if detail else ""
             raise QBError(
-                f"{self.instance.display}: {path} returned HTTP {response.status_code}"
+                f"{self.instance.display}: {path} returned HTTP "
+                f"{response.status_code}{suffix}"
             )
         if not response.content:
             return None
@@ -145,6 +152,11 @@ class QBClient:
 
     def version(self) -> str:
         value = self.get("/api/v2/app/version")
+        return str(value).strip()
+
+    def webapi_version(self) -> str:
+        """WebUI 接口版本号（如 ``2.15.1``），只用于诊断输出，不用于分支判定。"""
+        value = self.get("/api/v2/app/webapiVersion")
         return str(value).strip()
 
     def build_info(self) -> dict[str, Any]:

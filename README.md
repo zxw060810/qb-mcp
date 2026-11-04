@@ -91,7 +91,7 @@ qb-mcp
 | `qb_instances` | List configured instances and whether each is reachable |
 | `qb_overview` | Global status for one or all instances |
 | `qb_list` | Torrent list with filtering, sorting and a row limit |
-| `qb_detail` | One torrent in depth, including tracker status |
+| `qb_detail` | One torrent in depth, including tracker status (tracker URLs are redacted unless `show_tracker_urls=True`) |
 | `qb_diagnose` | Explain why an instance is or is not uploading |
 
 ### Write (state-changing)
@@ -100,7 +100,7 @@ qb-mcp
 |---|---|
 | `qb_control` | `pause` / `resume` / `reannounce` / `force_start` |
 | `qb_set_limit` | Global or per-torrent speed limits |
-| `qb_set_share` | Ratio and seeding-time limits |
+| `qb_set_share` | Ratio / seeding-time / inactive-seeding-time limits (minutes) and the action taken on reaching them |
 | `qb_add` | Add from magnet, URL or a local `.torrent` (paused by default) |
 | `qb_remove` | Remove torrents; `delete_files` is opt-in |
 | `qb_category` | Assign categories and tags |

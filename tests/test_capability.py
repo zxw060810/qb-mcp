@@ -1,0 +1,151 @@
+"""能力判定与单位处理的单元测试。
+
+覆盖缺陷：D1（控制端点）、D3/D4（分享限制参数与单位）、D5（加种字段）、
+D6（筛选值白名单）。这些用例在 0.1.2 上无法通过——0.1.2 根本没有版本概念。
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from qb_mcp import limits
+from qb_mcp.capability import (
+    HALTED_STATES,
+    SHARE_LIMIT_SUPERSET,
+    capabilities_for,
+    normalize_filter,
+    parse_version,
+)
+
+# -- 版本解析 ---------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("v4.6.4", (4, 6, 4)),
+        ("4.6.7", (4, 6, 7)),
+        ("v5.0.0", (5, 0, 0)),
+        ("v5.2.4", (5, 2, 4)),
+        ("v5.3.0", (5, 3, 0)),
+        ("v5.0.0beta1", (5, 0, 0)),
+        ("V5.2.4", (5, 2, 4)),
+    ],
+)
+def test_parse_version_accepts_real_world_strings(raw: str, expected: tuple) -> None:
+    assert parse_version(raw) == expected
+
+
+@pytest.mark.parametrize("raw", ["", "unknown", "weird", None, 42])
+def test_parse_version_returns_none_for_garbage(raw: object) -> None:
+    assert parse_version(raw) is None
+
+
+# -- 四段能力表 -------------------------------------------------------------
+
+
+def test_46_uses_pause_resume_and_paused_field() -> None:
+    caps = capabilities_for("v4.6.4")
+
+    assert caps.pause_route == "/api/v2/torrents/pause"
+    assert caps.resume_route == "/api/v2/torrents/resume"
+    assert caps.add_stop_field == "paused"
+    assert caps.paused_filter == "paused"
+    assert caps.known is True
+
+
+@pytest.mark.parametrize("raw", ["v5.0.0", "v5.1.4", "v5.2.4", "v5.3.0"])
+def test_5x_uses_stop_start_and_stopped_field(raw: str) -> None:
+    caps = capabilities_for(raw)
+
+    assert caps.pause_route == "/api/v2/torrents/stop"
+    assert caps.resume_route == "/api/v2/torrents/start"
+    assert caps.add_stop_field == "stopped"
+    assert caps.paused_filter == "stopped"
+
+
+def test_unknown_version_degrades_to_4x_and_is_marked_unknown() -> None:
+    caps = capabilities_for("")
+
+    assert caps.known is False
+    assert caps.pause_route == "/api/v2/torrents/pause"
+
+
+# -- 筛选值 -----------------------------------------------------------------
+
+
+def test_paused_alias_follows_the_version() -> None:
+    assert normalize_filter("paused", capabilities_for("v4.6.4")) == "paused"
+    assert normalize_filter("paused", capabilities_for("v5.2.4")) == "stopped"
+
+
+def test_filter_is_case_insensitive() -> None:
+    assert normalize_filter("PAUSED", capabilities_for("v5.2.4")) == "stopped"
+
+
+def test_unknown_filter_is_rejected_instead_of_forwarded() -> None:
+    with pytest.raises(ValueError):
+        normalize_filter("zzz", capabilities_for("v5.2.4"))
+
+
+def test_empty_filter_means_all() -> None:
+    assert normalize_filter("", capabilities_for("v5.2.4")) == "all"
+
+
+# -- 状态族 -----------------------------------------------------------------
+
+
+def test_halted_states_cover_both_generations() -> None:
+    assert "pausedUP" in HALTED_STATES
+    assert "stoppedUP" in HALTED_STATES
+    assert "uploading" not in HALTED_STATES
+
+
+# -- 分享限制参数超集 -------------------------------------------------------
+
+
+def test_share_limit_superset_is_complete() -> None:
+    assert SHARE_LIMIT_SUPERSET == (
+        "hashes",
+        "ratioLimit",
+        "seedingTimeLimit",
+        "inactiveSeedingTimeLimit",
+        "shareLimitAction",
+        "shareLimitsMode",
+    )
+
+
+# -- 单位处理 ---------------------------------------------------------------
+
+
+@pytest.mark.parametrize(("value", "expected"), [
+    (None, -1),
+    ("", -1),
+    (0, -1),
+    (-1, -1),
+    ("0", -1),
+    (1048576, 1048576),
+    ("409600", 409600),
+])
+def test_normalize_rate(value: object, expected: int) -> None:
+    assert limits.normalize_rate(value) == expected
+
+
+def test_zero_and_minus_one_are_the_same_limit() -> None:
+    assert limits.same_rate(0, -1) is True
+    assert limits.same_rate(524288, 524288) is True
+    assert limits.same_rate(524288, 1048576) is False
+
+
+def test_seconds_to_minutes_keeps_sentinels() -> None:
+    assert limits.seconds_to_minutes(-1) == -1
+    assert limits.seconds_to_minutes(-2) == -2
+    assert limits.seconds_to_minutes(60) == 1
+    assert limits.seconds_to_minutes(3600) == 60
+
+
+def test_rate_text_marks_unlimited() -> None:
+    assert limits.rate_text(0) == "不限"
+    assert limits.rate_text(-1) == "不限"
+    assert limits.rate_text(1_048_576) == "1.0 MB/s"
+    assert limits.rate_text(409_600) == "400 KB/s"
