@@ -21,7 +21,7 @@ classifiers = [
   "Topic :: System :: Networking",
   "Typing :: Typed",
 ]
-dependencies = ["mcp>=1.0", "requests>=2.31"]
+dependencies = ["mcp>=1.28,<3", "requests>=2.31"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-asyncio>=0.23", "pytest-cov>=5", "ruff>=0.5", "mypy>=1.10", "types-requests"]

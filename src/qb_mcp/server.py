@@ -13,12 +13,22 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import json
+import re
 import sys
 from typing import Any
 
 from . import __version__
+from .capability import (
+    HALTED_STATES,
+    SHARE_LIMIT_SUPERSET,
+    Capabilities,
+    capabilities_for,
+    normalize_filter,
+)
 from .client import QBClient, QBError
 from .config import AppConfig, ConfigError, InstanceConfig, load_config
+from .limits import normalize_rate, rate_text, same_rate
 
 
 # mcp 2.0 renamed FastMCP to MCPServer and moved version/host/port handling
@@ -116,6 +126,20 @@ def client(name: str) -> QBClient:
     return _CLIENTS[name]
 
 
+def version_note(caps: Capabilities) -> str:
+    """版本越界或解析失败时给一句明确的提示，避免"装作支持"。"""
+    if not caps.known:
+        return " (version unreadable, assumed 4.x behaviour)"
+    if not caps.supported:
+        return f" (qBittorrent {caps.raw} is below the audited range 4.6.0+)"
+    return ""
+
+
+def capabilities(qb: QBClient) -> Capabilities:
+    """取实例的接口形状（按主版本判定，含 4.x/5.x 的端点与字段差异）。"""
+    return capabilities_for(qb.version())
+
+
 def targets(instance: str | None) -> list[InstanceConfig]:
     """Resolve an instance selector; ``None`` means every configured instance."""
     if instance:
@@ -182,6 +206,22 @@ def find_hash(name: str, torrent_hash: str = "", title: str = "") -> str:
         listing = "; ".join(f"{m['name'][:50]} ({m['hash'][:8]})" for m in matches[:5])
         raise QBError(f"{len(matches)} torrents match {title!r}: {listing}")
     return str(matches[0]["hash"])
+
+
+def redact_tracker_url(url: str) -> str:
+    """只保留 ``scheme://host``，丢掉路径与查询串。
+
+    私有站点的 announce 链接常在路径或查询串里带 passkey，截断前 N 个字符
+    并不能保护它（密钥前缀照样会进模型上下文），因此默认整段隐去。
+    """
+    raw = str(url or "").strip()
+    if not raw:
+        return "(no url)"
+    match = re.match(r"^(https?)://([^/?#]+)", raw, re.IGNORECASE)
+    if match is None:
+        return "(hidden)"
+    scheme, host = match.groups()
+    return f"{scheme.lower()}://{host}"
 
 
 def error_text(exc: Exception) -> str:
@@ -268,19 +308,29 @@ def qb_list(
         limit: maximum rows to return (1-50).
     """
     limit = max(1, min(int(limit), 50))
-    params: dict[str, Any] = {"filter": filter or "all"}
+    try:
+        qb = client(instance)
+        # 服务端对未知筛选值不报错而是返回全部，所以这里先翻译 + 白名单校验，
+        # 绝不把用户输入原样透传。
+        selected_filter = normalize_filter(filter, capabilities(qb))
+    except ValueError as exc:
+        return f"ERROR: {exc}"
+    except (QBError, ConfigError) as exc:
+        return error_text(exc)
+
+    params: dict[str, Any] = {"filter": selected_filter}
     if category:
         params["category"] = category
     if sort:
         params["sort"] = sort
         params["reverse"] = "true"
     try:
-        torrents = client(instance).torrents(**params)
+        torrents = qb.torrents(**params)
     except (QBError, ConfigError) as exc:
         return error_text(exc)
 
     if not torrents:
-        return f"[{instance}] no torrents match filter={filter!r}"
+        return f"[{instance}] no torrents match filter={selected_filter!r}"
 
     rows = ["| 名称 | 状态 | 进度 | 分享率 | 上传 | 下载者 |", "|---|---|---|---|---|---|"]
     for torrent in torrents[:limit]:
@@ -300,13 +350,20 @@ def qb_list(
 
 
 @mcp.tool()
-def qb_detail(instance: str, hash: str = "", name: str = "") -> str:
+def qb_detail(
+    instance: str,
+    hash: str = "",
+    name: str = "",
+    show_tracker_urls: bool = False,
+) -> str:
     """Show one torrent in depth, including tracker status.
 
     Args:
         instance: instance key from .instances.json.
         hash: torrent hash (preferred).
         name: fuzzy name match, used when hash is empty.
+        show_tracker_urls: reveal full announce URLs (they may contain a private
+            tracker passkey - off by default so the secret never reaches the model).
     """
     try:
         torrent_hash = find_hash(instance, hash, name)
@@ -331,7 +388,8 @@ def qb_detail(instance: str, hash: str = "", name: str = "") -> str:
         "  trackers:",
     ]
     for tracker in trackers:
-        url = str(tracker.get("url") or "")[:60]
+        raw_url = str(tracker.get("url") or "")
+        url = raw_url if show_tracker_urls else redact_tracker_url(raw_url)
         lines.append(
             f"    {tracker.get('status')}  peers={tracker.get('num_peers')}  {url}"
         )
@@ -393,21 +451,22 @@ def qb_diagnose(instance: str, hash: str = "") -> str:
     port = prefs.get("listen_port")
     findings.append(f"  监听端口: {port}")
 
-    # Speed limits - honour the alternative-limits mode
+    # 限速有三个不同来源，混成一个数字会误导：全局限速（transfer/info，字节/秒）、
+    # 备用限速（preferences，千字节/秒）、以及当前是否启用备用。
     up_speed = info.get("up_info_speed")
-    alt_mode = int(prefs.get("speed_limits_mode") or 0) == 1 or bool(
-        prefs.get("use_alt_speed_limits")
-    )
-    effective_up = prefs.get("alt_up_limit") if alt_mode else prefs.get("up_limit")
+    alt_mode = _alt_limit_active(prefs)
+    # 两处都按字节/秒：transfer/info 是"当前生效"的限速，preferences 是"正常模式"的，
+    # 备用限速开启时二者本来就不同。
+    raw_global = info["up_rate_limit"] if "up_rate_limit" in info else prefs.get("up_limit")
+    global_up = normalize_rate(raw_global)
+    alt_up = normalize_rate(prefs.get("alt_up_limit"))
     findings.append(
-        f"  上传限速: {limit_text(effective_up)}"
-        f"{' (备用限速模式已开启)' if alt_mode else ''} / 当前上传: {speed(up_speed)}"
+        f"  上传限速: 全局限速 {rate_text(global_up)}"
+        f" · 备用限速 {rate_text(alt_up)}（当前{'启用' if alt_mode else '未启用'}）"
+        f" · 当前上传 {speed(up_speed)}"
     )
-    up_limit_bytes = 0
-    if isinstance(effective_up, (int, float)):
-        up_limit_bytes = int(effective_up)
-    elif isinstance(effective_up, str) and effective_up.isdigit():
-        up_limit_bytes = int(effective_up)
+    effective_up = alt_up if alt_mode else global_up
+    up_limit_bytes = 0 if effective_up < 0 else effective_up
     try:
         capped = up_limit_bytes > 0 and float(up_speed or 0) >= up_limit_bytes * 0.8
     except (TypeError, ValueError):
@@ -459,27 +518,36 @@ def qb_control(instance: str, action: str, hashes: list[str] | None = None) -> s
         action: pause | resume | reannounce | force_start.
         hashes: torrent hashes; empty means every torrent.
     """
-    endpoints = {
-        "pause": "/api/v2/torrents/pause",
-        "resume": "/api/v2/torrents/resume",
-        "reannounce": "/api/v2/torrents/reannounce",
-        "force_start": "/api/v2/torrents/setForceStart",
-    }
-    if action not in endpoints:
-        return f"ERROR: action must be one of {', '.join(endpoints)}"
+    if action not in ("pause", "resume", "reannounce", "force_start"):
+        return "ERROR: action must be one of pause, resume, reannounce, force_start"
 
     try:
         qb = client(instance)
+        # 4.6 用 pause/resume，5.0 起改成 stop/start；路径无法用"参数超集"兼容，
+        # 只能按版本二选一。
+        caps = capabilities(qb)
+        if action == "pause":
+            endpoint = caps.pause_route
+        elif action == "resume":
+            endpoint = caps.resume_route
+        elif action == "reannounce":
+            endpoint = "/api/v2/torrents/reannounce"
+        else:
+            endpoint = "/api/v2/torrents/setForceStart"
+
         selected = hashes or [str(t["hash"]) for t in qb.torrents()]
         if not selected:
             return f"[{instance}] no torrents to act on"
         payload: dict[str, Any] = {"hashes": "|".join(selected)}
         if action == "force_start":
             payload["value"] = "true"
-        qb.post(endpoints[action], data=payload)
+        qb.post(endpoint, data=payload)
     except (QBError, ConfigError) as exc:
         return error_text(exc)
-    return f"[{instance}] {action}: applied to {len(selected)} torrent(s)"
+    return (
+        f"[{instance}] {action}: applied to {len(selected)} torrent(s)"
+        f"{version_note(caps)}"
+    )
 
 
 @mcp.tool()
@@ -488,6 +556,7 @@ def qb_set_limit(
     up: int | None = None,
     dl: int | None = None,
     hashes: list[str] | None = None,
+    mode: str = "normal",
 ) -> str:
     """Set upload/download speed limits in bytes per second (0 = unlimited).
 
@@ -496,43 +565,160 @@ def qb_set_limit(
         up: upload limit in bytes/s; 0 means unlimited.
         dl: download limit in bytes/s; 0 means unlimited.
         hashes: torrent hashes; empty means the global limit.
+        mode: "normal" for the normal global limit, "alternative" for the
+            alternative (scheduled) limit. qBittorrent keeps them separate and
+            the active one depends on whether alternative mode is switched on.
     """
     if up is None and dl is None:
         return "ERROR: provide up and/or dl"
+    if mode not in ("normal", "alternative"):
+        return "ERROR: mode must be normal or alternative"
+    if mode == "alternative" and hashes:
+        return "ERROR: alternative limits are global only; omit hashes"
+    try:
+        up_limit = normalize_rate(up) if up is not None else None
+        dl_limit = normalize_rate(dl) if dl is not None else None
+    except ValueError as exc:
+        return f"ERROR: {exc}"
+
+    if mode == "alternative":
+        return _set_alternative_limit(instance, up_limit, dl_limit)
+
     try:
         qb = client(instance)
+        prefs = qb.preferences()
+        alt_active = _alt_limit_active(prefs)
         before = qb.transfer_info()
-        before_up = limit_text(before.get("up_limit"))
-        before_dl = limit_text(before.get("dl_limit"))
+        before_up, before_dl = before.get("up_rate_limit"), before.get("dl_rate_limit")
 
         if hashes:
-            if up is not None:
+            joined = "|".join(hashes)
+            if up_limit is not None:
                 qb.post(
                     "/api/v2/torrents/setUploadLimit",
-                    data={"hashes": "|".join(hashes), "limit": str(up)},
+                    data={"hashes": joined, "limit": str(up_limit)},
                 )
-            if dl is not None:
+            if dl_limit is not None:
                 qb.post(
                     "/api/v2/torrents/setDownloadLimit",
-                    data={"hashes": "|".join(hashes), "limit": str(dl)},
+                    data={"hashes": joined, "limit": str(dl_limit)},
                 )
             scope = f"{len(hashes)} torrent(s)"
         else:
-            if up is not None:
-                qb.post("/api/v2/transfer/uploadLimit", data={"limit": str(up)})
-            if dl is not None:
-                qb.post("/api/v2/transfer/downloadLimit", data={"limit": str(dl)})
+            # 注意端点名：写入是 setUploadLimit，uploadLimit 是读取端点。
+            # 对读取端点 POST 会返回 200 但什么都不做（实测于 5.2.4）。
+            if up_limit is not None:
+                qb.post("/api/v2/transfer/setUploadLimit", data={"limit": str(up_limit)})
+            if dl_limit is not None:
+                qb.post("/api/v2/transfer/setDownloadLimit", data={"limit": str(dl_limit)})
             scope = "global"
 
         after = qb.transfer_info()
+        per_torrent = (
+            {str(t.get("hash")): t for t in qb.torrents()} if hashes else {}
+        )
     except (QBError, ConfigError) as exc:
         return error_text(exc)
 
+    # 写接口对所有情况都返回 200，只能靠读回判断是否真的生效。
+    # 单种限速要读 torrents/info 里每个种子的 up_limit，全局限速才读 transfer/info。
+    problems: list[str] = []
+    if hashes:
+        for torrent_hash in hashes:
+            row = per_torrent.get(torrent_hash) or {}
+            if up_limit is not None and not same_rate(row.get("up_limit"), up_limit):
+                problems.append(
+                    f"{torrent_hash[:8]}: upload limit reads back "
+                    f"{rate_text(row.get('up_limit'))}, expected {rate_text(up_limit)}"
+                )
+            if dl_limit is not None and not same_rate(row.get("dl_limit"), dl_limit):
+                problems.append(
+                    f"{torrent_hash[:8]}: download limit reads back "
+                    f"{rate_text(row.get('dl_limit'))}, expected {rate_text(dl_limit)}"
+                )
+    else:
+        if up_limit is not None and not same_rate(after.get("up_rate_limit"), up_limit):
+            problems.append(
+                f"upload readback mismatch: wanted {rate_text(up_limit)}, "
+                f"got {rate_text(after.get('up_rate_limit'))}"
+            )
+        if dl_limit is not None and not same_rate(after.get("dl_rate_limit"), dl_limit):
+            problems.append(
+                f"download readback mismatch: wanted {rate_text(dl_limit)}, "
+                f"got {rate_text(after.get('dl_rate_limit'))}"
+            )
+    warnings: list[str] = []
+    if problems and alt_active and not hashes:
+        # 备用限速在生效时，实际速率取的是备用值，全局限速读回对不上属正常。
+        warnings = problems
+        problems = []
+        warnings.append(
+            "alternative speed limits are active, so the effective limit is "
+            f"{rate_text(normalize_rate(prefs.get('alt_up_limit')))}; the value "
+            "written here applies once alternative mode is switched off"
+        )
+    if problems:
+        return f"ERROR: [{instance}] speed limit did not take effect - " + "; ".join(problems)
+
+    lines = [
+        f"[{instance}] speed limit updated ({scope})",
+        f"  upload   : {rate_text(before_up)} -> {rate_text(after.get('up_rate_limit'))}",
+        f"  download : {rate_text(before_dl)} -> {rate_text(after.get('dl_rate_limit'))}",
+    ]
+    lines.extend(f"  ! {item}" for item in warnings)
+    return "\n".join(lines)
+
+
+def _alt_limit_active(prefs: dict[str, Any]) -> bool:
+    """qBittorrent 用两个字段表达备用限速状态，任一处为真即认为启用。"""
+    return str(prefs.get("speed_limits_mode") or 0) == "1" or bool(
+        prefs.get("use_alt_speed_limits")
+    )
+
+
+def _set_alternative_limit(
+    instance: str, up_limit: int | None, dl_limit: int | None
+) -> str:
+    """改写备用限速（preferences 里以千字节/秒存储）。"""
+    try:
+        qb = client(instance)
+        before = qb.preferences()
+        payload: dict[str, Any] = {}
+        if up_limit is not None:
+            payload["alt_up_limit"] = up_limit
+        if dl_limit is not None:
+            payload["alt_dl_limit"] = dl_limit
+        qb.post("/api/v2/app/setPreferences", data={"json": json.dumps(payload)})
+        after = qb.preferences()
+    except (QBError, ConfigError) as exc:
+        return error_text(exc)
+
+    problems: list[str] = []
+    if up_limit is not None and not same_rate(after.get("alt_up_limit"), up_limit):
+        problems.append(
+            f"alternative upload limit reads back "
+            f"{rate_text(after.get('alt_up_limit'))}, "
+            f"expected {rate_text(up_limit)}"
+        )
+    if dl_limit is not None and not same_rate(after.get("alt_dl_limit"), dl_limit):
+        problems.append(
+            f"alternative download limit reads back "
+            f"{rate_text(after.get('alt_dl_limit'))}, "
+            f"expected {rate_text(dl_limit)}"
+        )
+    if problems:
+        return f"ERROR: [{instance}] alternative limit did not take effect - " + "; ".join(
+            problems
+        )
+
     return "\n".join(
         [
-            f"[{instance}] speed limit updated ({scope})",
-            f"  upload   : {before_up} -> {limit_text(after.get('up_limit'))}",
-            f"  download : {before_dl} -> {limit_text(after.get('dl_limit'))}",
+            f"[{instance}] alternative speed limit updated",
+            f"  upload   : {rate_text(before.get('alt_up_limit'))}"
+            f" -> {rate_text(after.get('alt_up_limit'))}",
+            f"  download : {rate_text(before.get('alt_dl_limit'))}"
+            f" -> {rate_text(after.get('alt_dl_limit'))}",
+            "  (takes effect only while alternative speed limits are switched on)",
         ]
     )
 
@@ -543,35 +729,91 @@ def qb_set_share(
     hashes: list[str],
     ratio: float | None = None,
     seeding_time: int | None = None,
+    inactive_seeding_time: int | None = None,
+    action: str = "stop",
+    mode: str = "default",
 ) -> str:
     """Set ratio and/or seeding-time limits for specific torrents.
 
     Args:
         instance: instance key from .instances.json.
         hashes: torrent hashes to update.
-        ratio: maximum ratio; -1 means unlimited.
-        seeding_time: maximum seeding time in seconds; -1 means unlimited.
+        ratio: maximum ratio; -1 means unlimited, -2 means use the global value.
+        seeding_time: maximum seeding time in MINUTES (qBittorrent's unit);
+            -1 unlimited, -2 use global (default).
+        inactive_seeding_time: maximum inactive seeding time in MINUTES;
+            -1 unlimited, -2 use global (default).
+        action: what to do once a limit is reached - "stop" (default) or
+            "enable_super_seeding". Removal is deliberately not offered here;
+            use qb_remove for anything destructive.
+        mode: how the limits combine - "default" (inherit), "any" (stop when
+            either limit is reached) or "all" (both). Only qBittorrent 5.3+
+            honours it; older versions ignore the field.
     """
     if not hashes:
         return "ERROR: hashes must not be empty"
-    if ratio is None and seeding_time is None:
-        return "ERROR: provide ratio and/or seeding_time"
+    if ratio is None and seeding_time is None and inactive_seeding_time is None:
+        return "ERROR: provide ratio and/or seeding_time and/or inactive_seeding_time"
+
+    actions = {"stop": "Stop", "enable_super_seeding": "EnableSuperSeeding"}
+    modes = {"default": "Default", "any": "MatchAny", "all": "MatchAll"}
+    if mode not in modes:
+        return "ERROR: mode must be default, any or all"
+    if action not in actions:
+        return (
+            "ERROR: action must be one of stop, enable_super_seeding "
+            "(use qb_remove for removal)"
+        )
+
+    # 参数按 5.3.0 的超集发送：requireParams 只校验必需项存在，多余参数被忽略，
+    # 因此 4.6 / 5.0 / 5.1 / 5.2 都能吃同一条请求。
     payload: dict[str, Any] = {"hashes": "|".join(hashes)}
-    if ratio is not None:
-        payload["ratioLimit"] = str(ratio)
-        payload["seedingTimeLimit"] = str(seeding_time if seeding_time is not None else -2)
-    if seeding_time is not None:
-        payload["seedingTimeLimit"] = str(seeding_time)
-        payload.setdefault("ratioLimit", "-2")
+    defaults = {
+        "ratioLimit": ratio,
+        "seedingTimeLimit": seeding_time,
+        "inactiveSeedingTimeLimit": inactive_seeding_time,
+    }
+    for field, value in defaults.items():
+        payload[field] = str(value if value is not None else -2)
+    payload["shareLimitAction"] = actions[action]
+    payload["shareLimitsMode"] = modes[mode]
+    assert set(SHARE_LIMIT_SUPERSET) <= set(payload), "share limit payload is incomplete"
+
     try:
-        client(instance).post("/api/v2/torrents/setShareLimits", data=payload)
+        qb = client(instance)
+        qb.post("/api/v2/torrents/setShareLimits", data=payload)
+        rows = {str(t.get("hash")): t for t in qb.torrents()}
     except (QBError, ConfigError) as exc:
         return error_text(exc)
-    return (
+
+    warnings: list[str] = []
+    if seeding_time is not None and seeding_time >= 0:
+        for torrent_hash in hashes:
+            row = rows.get(torrent_hash)
+            if row is None:
+                continue
+            actual = row.get("seeding_time_limit")
+            if actual == -2 and row.get("auto_tmm"):
+                warnings.append(
+                    f"{torrent_hash[:8]}: automatic torrent management is on, "
+                    "so the per-torrent limit reads back as -2 (inherited)"
+                )
+            elif actual is not None and int(actual) != int(seeding_time):
+                warnings.append(
+                    f"{torrent_hash[:8]}: seeding_time_limit reads back {actual}, "
+                    f"expected {seeding_time}"
+                )
+
+    lines = [
         f"[{instance}] share limit updated for {len(hashes)} torrent(s): "
         f"ratio={ratio if ratio is not None else 'unchanged'}, "
-        f"seeding_time={seeding_time if seeding_time is not None else 'unchanged'}"
-    )
+        f"seeding_time={seeding_time if seeding_time is not None else 'unchanged'} min, "
+        f"inactive_seeding_time="
+        f"{inactive_seeding_time if inactive_seeding_time is not None else 'unchanged'} min, "
+        f"action={action}, mode={mode}",
+    ]
+    lines.extend(f"  ! {item}" for item in warnings)
+    return "\n".join(lines)
 
 
 @mcp.tool()
@@ -591,18 +833,24 @@ def qb_add(
         category: category to assign.
         paused: add in paused state (default true) so it can be reviewed first.
     """
-    data: dict[str, Any] = {"paused": "true" if paused else "false"}
+    data: dict[str, Any] = {}
     if savepath:
         data["savepath"] = savepath
     if category:
         data["category"] = category
     try:
-        if source.startswith("magnet:"):
+        qb = client(instance)
+        caps = capabilities(qb)
+        # 4.6 读 paused，5.0 起读 stopped；两个字段发同一个值，
+        # 版本识别不准时仍能停住（多余字段被忽略，实测两代都不报错）。
+        flag = "true" if paused else "false"
+        data["paused"] = flag
+        data["stopped"] = flag
+        before_hashes = {str(t.get("hash")) for t in qb.torrents()}
+
+        if source.startswith(("magnet:", "http://", "https://")):
             data["urls"] = source
-            client(instance).post("/api/v2/torrents/add", data=data)
-        elif source.startswith(("http://", "https://")):
-            data["urls"] = source
-            client(instance).post("/api/v2/torrents/add", data=data)
+            qb.post("/api/v2/torrents/add", data=data)
         else:
             from pathlib import Path
 
@@ -610,14 +858,28 @@ def qb_add(
             if not path.is_file():
                 return f"ERROR: {source} is not a magnet, URL, or readable file"
             with path.open("rb") as handle:
-                client(instance).post(
+                qb.post(
                     "/api/v2/torrents/add",
                     data=data,
                     files={"torrents": (path.name, handle, "application/x-bittorrent")},
                 )
+
+        added = [t for t in qb.torrents() if str(t.get("hash")) not in before_hashes]
     except (QBError, ConfigError) as exc:
         return error_text(exc)
-    return f"[{instance}] torrent added (paused={paused}): {source[:60]}"
+
+    warning = ""
+    if paused and len(added) == 1:
+        state = str(added[0].get("state") or "")
+        if state and state not in HALTED_STATES:
+            warning = (
+                f"\n  ! expected a stopped torrent but its state is {state!r}; "
+                "the pause field may have been ignored by this qBittorrent version"
+            )
+    return (
+        f"[{instance}] torrent added (paused={paused}): {source[:60]}"
+        f"{version_note(caps)}{warning}"
+    )
 
 
 @mcp.tool()

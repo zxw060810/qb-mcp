@@ -16,6 +16,7 @@ Three quirks are handled explicitly because they bite real deployments:
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import requests
@@ -102,13 +103,19 @@ class QBClient:
         *,
         params: dict[str, Any] | None = None,
         data: Any = None,
+        files: Any = None,
         retry: bool = True,
     ) -> Any:
         """Perform a request, re-authenticating once on 401/403."""
         url = self.instance.base_url + path
         try:
             response = self.session.request(
-                method, url, params=params, data=data, timeout=self.instance.timeout
+                method,
+                url,
+                params=params,
+                data=data,
+                files=files,
+                timeout=self.instance.timeout,
             )
         except requests.RequestException as exc:
             raise QBError(f"{self.instance.display}: request to {path} failed: {exc}") from exc
@@ -117,7 +124,12 @@ class QBClient:
             self.reset()
             try:
                 response = self.session.request(
-                    method, url, params=params, data=data, timeout=self.instance.timeout
+                    method,
+                    url,
+                    params=params,
+                    data=data,
+                    files=files,
+                    timeout=self.instance.timeout,
                 )
             except requests.RequestException as exc:
                 raise QBError(
@@ -125,8 +137,23 @@ class QBClient:
                 ) from exc
 
         if response.status_code >= 400:
+            # 服务端的错误正文才是可用信息：5.x 会明确写出"缺少必需参数：xxx"，
+            # 只报 HTTP 状态码会让这类问题永远查不出来。
+            detail = (response.text or "").strip()
+            if len(detail) > 200:
+                detail = detail[:200] + "…"
+            suffix = f" - {detail}" if detail else ""
+            if response.status_code == 400 and re.search(
+                r"missing required|缺少必需参数|required parameter", detail, re.IGNORECASE
+            ):
+                raise QBError(
+                    f"{self.instance.display}: {path} needs parameters this build does "
+                    "not send yet - upgrade qb-mcp (see docs/COMPATIBILITY.md). "
+                    f"Server said: {detail}"
+                )
             raise QBError(
-                f"{self.instance.display}: {path} returned HTTP {response.status_code}"
+                f"{self.instance.display}: {path} returned HTTP "
+                f"{response.status_code}{suffix}"
             )
         if not response.content:
             return None
@@ -138,13 +165,20 @@ class QBClient:
     def get(self, path: str, **params: Any) -> Any:
         return self.request("GET", path, params=params or None)
 
-    def post(self, path: str, data: Any = None, **params: Any) -> Any:
-        return self.request("POST", path, params=params or None, data=data)
+    def post(
+        self, path: str, data: Any = None, files: Any = None, **params: Any
+    ) -> Any:
+        return self.request("POST", path, params=params or None, data=data, files=files)
 
     # -- convenience --------------------------------------------------------
 
     def version(self) -> str:
         value = self.get("/api/v2/app/version")
+        return str(value).strip()
+
+    def webapi_version(self) -> str:
+        """WebUI 接口版本号（如 ``2.15.1``），只用于诊断输出，不用于分支判定。"""
+        value = self.get("/api/v2/app/webapiVersion")
         return str(value).strip()
 
     def build_info(self) -> dict[str, Any]:

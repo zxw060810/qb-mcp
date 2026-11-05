@@ -5,6 +5,84 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] (0.2.1 追加)
+
+### Fixed
+
+- `qb_set_limit` no longer reports a false failure when alternative speed limits
+  are switched on. It now reads the mode first, explains that the effective
+  limit is the alternative one, and only errors when the write really failed.
+- `qb_diagnose` shows the three rate limits separately (effective global,
+  alternative, current throughput) instead of presenting one number with two
+  meanings. The `preferences` limit fields are bytes/second in the source, not
+  KiB/second as the wiki claims.
+- 400 responses that mean "missing required parameter" now say so in plain
+  language and point at the compatibility document, instead of a bare status code.
+
+### Added
+
+- `qb_set_limit(mode="alternative")` edits the alternative limits through
+  `app/setPreferences` and verifies the readback.
+- `qb_set_share(mode=...)` exposes `shareLimitsMode` (default / any / all),
+  which qBittorrent 5.3+ honours and older versions ignore.
+- Versions below 4.6.0 (outside the audited range) are named in the tool output
+  instead of being silently assumed to work.
+- `mcp` dependency is now bounded (`>=1.28,<3`), CI runs the offline suite
+  against both SDK majors, and a weekly scheduled job re-audits the upstream
+  interface table and fails when qBittorrent changes something.
+
+## [Unreleased]
+
+### Fixed
+
+- **`qb_control` failed on qBittorrent 5.x.** The `pause`/`resume` endpoints were
+  removed in 5.0 in favour of `stop`/`start`; the tool now picks the route from
+  the instance version instead of hard-coding the 4.x names.
+- **Global speed limits were silently ignored.** `qb_set_limit` posted to
+  `/transfer/uploadLimit`, which is a *read* endpoint: qBittorrent answered
+  `200` and changed nothing. Writes now go to `setUploadLimit` /
+  `setDownloadLimit`, and every write is verified by reading back
+  `up_rate_limit` / `dl_rate_limit` (which is also the correct field pair - the
+  old code read `up_limit` / `dl_limit` from the wrong response).
+- **`qb_set_share` returned HTTP 400 on every version.** qBittorrent requires
+  `inactiveSeedingTimeLimit` since 4.6, `shareLimitAction` since 5.2 and
+  `shareLimitsMode` since 5.3. The tool now always sends the 5.3 superset, which
+  older versions ignore.
+- **`qb_add` started downloads on 5.x despite `paused=True`.** 5.x reads the
+  `stopped` form field; `paused` is ignored there. Both fields are now sent, and
+  the resulting torrent state is checked after adding.
+- `qb_detail` no longer prints the first 60 characters of a tracker announce URL,
+  which leaked the prefix of private-tracker passkeys. Only `scheme://host` is
+  shown; pass `show_tracker_urls=True` to reveal the full URL.
+
+### Changed
+
+- **Breaking:** `qb_list` now validates the `filter` argument against a whitelist
+  and rejects unknown values. qBittorrent silently returns *every* torrent for an
+  unknown filter value, so the old pass-through behaviour produced wrong results
+  instead of an error. `paused` remains accepted and is translated per version.
+- **Breaking:** `qb_set_share`'s `seeding_time` is now in **minutes**, matching
+  qBittorrent's own unit. It previously accepted seconds and passed them straight
+  through, which inflated limits by a factor of 60.
+- `qb_set_share` gained `inactive_seeding_time` (minutes, default: inherit the
+  global setting) and `action` (`stop` or `enable_super_seeding`). Removal
+  actions are deliberately not exposed here - use `qb_remove`.
+- `QBError` messages now include the response body, so qBittorrent's own
+  diagnostics (for example "missing required parameter: shareLimitsMode") are
+  visible instead of a bare HTTP status code.
+
+### Added
+
+- `docs/compatibility.json` - the interface contract, extracted from 25
+  qBittorrent release tags (4.6.0 through 5.3.0) rather than from the wiki, which
+  is out of date in places.
+- `scripts/audit_compat.py` - regenerates that table from any set of tags; it
+  refuses to emit guesses and exits non-zero when a source file cannot be read.
+- `tests/test_contract.py` - generates one assertion per audited tag, so a new
+  qBittorrent release shows up as a failing test rather than a surprise.
+- The live CI job now runs against four containers (4.6.7, 5.1.4, 5.2.4, 5.3.0),
+  one per compatibility generation, and exercises the write path end to end.
+
 ## [0.1.2] - 2026-11-03
 
 ### Changed

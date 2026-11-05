@@ -17,14 +17,24 @@ from qb_mcp.config import InstanceConfig
 
 
 class _QB:
-    def __init__(self) -> None:
+    def __init__(self, torrents: list[dict[str, Any]] | None = None) -> None:
         self.posts: list[tuple[str, Any]] = []
+        self._torrents = torrents if torrents is not None else []
+
+    def version(self) -> str:
+        return "v5.2.4"
+
+    def torrents(self, **_params: Any) -> list[dict[str, Any]]:
+        return self._torrents
 
     def post(self, path: str, data: Any = None, **_kwargs: Any) -> None:
         self.posts.append((path, data))
 
     def transfer_info(self) -> dict[str, Any]:
-        return {"up_limit": 0, "dl_limit": 0}
+        return {"up_rate_limit": 0, "dl_rate_limit": 0}
+
+    def preferences(self) -> dict[str, Any]:
+        return {}
 
 
 def _boom(_name: str) -> Any:
@@ -89,7 +99,7 @@ def test_diagnose_reports_a_connection_failure(monkeypatch) -> None:
 
 def test_set_limit_download_only_per_torrent(monkeypatch) -> None:
     """server.py:514-518 - the per-torrent download limit arm."""
-    qb = _QB()
+    qb = _QB(torrents=[{"hash": "a" * 40, "dl_limit": 100}])
     monkeypatch.setattr(server, "client", lambda _name: qb)
 
     server.qb_set_limit("home", dl=100, hashes=["a" * 40])
