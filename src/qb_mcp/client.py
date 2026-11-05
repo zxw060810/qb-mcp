@@ -16,6 +16,7 @@ Three quirks are handled explicitly because they bite real deployments:
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import requests
@@ -142,6 +143,14 @@ class QBClient:
             if len(detail) > 200:
                 detail = detail[:200] + "…"
             suffix = f" - {detail}" if detail else ""
+            if response.status_code == 400 and re.search(
+                r"missing required|缺少必需参数|required parameter", detail, re.IGNORECASE
+            ):
+                raise QBError(
+                    f"{self.instance.display}: {path} needs parameters this build does "
+                    "not send yet - upgrade qb-mcp (see docs/COMPATIBILITY.md). "
+                    f"Server said: {detail}"
+                )
             raise QBError(
                 f"{self.instance.display}: {path} returned HTTP "
                 f"{response.status_code}{suffix}"

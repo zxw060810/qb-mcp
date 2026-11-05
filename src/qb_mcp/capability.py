@@ -32,6 +32,9 @@ SHARE_LIMIT_SUPERSET: tuple[str, ...] = (
 )
 
 #: 状态字符串的两族写法：4.6.x 用 paused*，5.0.0 起统一为 stopped*。
+#: 审计覆盖的最低版本；更老的行为未经验证，调用方应提示用户。
+SUPPORTED_MIN = (4, 6, 0)
+
 PAUSED_STATES = frozenset({"pausedUP", "pausedDL"})
 STOPPED_STATES = frozenset({"stoppedUP", "stoppedDL"})
 HALTED_STATES = PAUSED_STATES | STOPPED_STATES
@@ -70,6 +73,11 @@ class Capabilities:
     @property
     def major(self) -> int | None:
         return self.version[0] if self.version else None
+
+    @property
+    def supported(self) -> bool:
+        """版本是否落在审计覆盖范围内（4.6.0 及以上）。"""
+        return self.version is not None and self.version >= SUPPORTED_MIN
 
 
 _V4 = {

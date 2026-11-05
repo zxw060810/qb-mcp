@@ -149,3 +149,24 @@ def test_rate_text_marks_unlimited() -> None:
     assert limits.rate_text(-1) == "不限"
     assert limits.rate_text(1_048_576) == "1.0 MB/s"
     assert limits.rate_text(409_600) == "400 KB/s"
+
+
+# -- 支持区间 ---------------------------------------------------------------
+
+
+@pytest.mark.parametrize("raw", ["v4.6.0", "v4.6.4", "v5.0.0", "v5.3.0"])
+def test_supported_versions_are_flagged(raw: str) -> None:
+    assert capabilities_for(raw).supported is True
+
+
+@pytest.mark.parametrize("raw", ["v4.5.5", "v4.1.0", "", "garbage"])
+def test_older_or_unknown_versions_are_not_claimed_as_supported(raw: str) -> None:
+    assert capabilities_for(raw).supported is False
+
+
+def test_version_note_is_empty_inside_the_audited_range() -> None:
+    from qb_mcp import server
+
+    assert server.version_note(capabilities_for("v5.2.4")) == ""
+    assert "below the audited range" in server.version_note(capabilities_for("v4.5.0"))
+    assert "unreadable" in server.version_note(capabilities_for("?"))

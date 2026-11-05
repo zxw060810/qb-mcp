@@ -124,3 +124,27 @@ def test_reset_forces_new_login(monkeypatch, instance):
     second = qb.session
     assert second is not first
     assert len(created) == 2
+
+
+def test_missing_parameter_errors_are_turned_into_an_upgrade_hint(monkeypatch, instance) -> None:
+    """qBittorrent 5.3 报"缺少必需参数"时，用户需要知道该升级而不是猜。"""
+    from qb_mcp.client import QBClient, QBError
+
+    class _Resp:
+        status_code = 400
+        text = "缺少必需参数：shareLimitsMode"
+        content = b"x"
+
+    class _Session:
+        headers: dict[str, str] = {}
+
+        def request(self, *_a, **_kw):
+            return _Resp()
+
+    client = QBClient(instance)
+    client._session = _Session()
+
+    with pytest.raises(QBError) as excinfo:
+        client.post("/api/v2/torrents/setShareLimits", data={})
+
+    assert "upgrade qb-mcp" in str(excinfo.value)

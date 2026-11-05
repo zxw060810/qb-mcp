@@ -174,7 +174,7 @@ def test_diagnose_honours_alternative_limit_mode(wire) -> None:
 
     out = server.qb_diagnose("test")
 
-    assert "备用限速模式已开启" in out
+    assert "备用限速 49 KB/s（当前启用）" in out
     assert "已顶到限速上限" in out
 
 

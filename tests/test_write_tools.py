@@ -30,12 +30,14 @@ class RecordQB:
         version: str = "5.2.4",
         torrents: list[dict[str, Any]] | None = None,
         transfer: dict[str, Any] | None = None,
+        prefs: dict[str, Any] | None = None,
         props: dict[str, Any] | None = None,
         trackers: list[dict[str, Any]] | None = None,
     ) -> None:
         self._version = version
         self._torrents = torrents if torrents is not None else []
         self._transfer = transfer if transfer is not None else {}
+        self._prefs = prefs if prefs is not None else {}
         self._props = props if props is not None else {}
         self._trackers = trackers if trackers is not None else []
         self.posts: list[tuple[str, Any]] = []
@@ -51,6 +53,9 @@ class RecordQB:
         self.torrent_calls.append(params)
         return self._torrents
 
+    def preferences(self) -> dict[str, Any]:
+        return self._prefs
+
     def transfer_info(self) -> dict[str, Any]:
         # 允许传一个序列，模拟"写入前 / 写入后"的两次读回。
         if isinstance(self._transfer, list):
@@ -62,6 +67,11 @@ class RecordQB:
     def post(self, path: str, data: Any = None, **kwargs: Any) -> None:
         self.posts.append((path, data))
         self.post_kwargs.append(kwargs)
+        # setPreferences 之后读回要看到新值，否则无法验证写后校验逻辑。
+        if path.endswith("/app/setPreferences") and isinstance(data, dict):
+            import json as _json
+
+            self._prefs.update(_json.loads(data.get("json", "{}")))
 
     def get(self, path: str, **params: Any) -> Any:
         self.gets.append((path, params))
@@ -625,3 +635,65 @@ def test_set_limit_per_torrent_reads_back_the_torrent_not_the_global(wire) -> No
 
     assert not out.startswith("ERROR:"), out
     assert stub.posts[0][0] == "/api/v2/torrents/setUploadLimit"
+
+
+# -- 备用限速（0.2.1）------------------------------------------------------
+
+
+def test_set_limit_does_not_fail_when_alternative_limits_are_active(wire) -> None:
+    """备用限速生效时，实际速率取备用值，全局读回对不上属正常，不能报错。"""
+    wire(
+        RecordQB(
+            transfer=[
+                {"up_rate_limit": 409600, "dl_rate_limit": 0},
+                {"up_rate_limit": 409600, "dl_rate_limit": 0},
+            ],
+            prefs={"speed_limits_mode": 1, "alt_up_limit": 786432},
+        )
+    )
+
+    out = server.qb_set_limit("test", up=1048576)
+
+    assert not out.startswith("ERROR:"), out
+    assert "alternative speed limits are active" in out
+
+
+def test_set_limit_alternative_mode_writes_preferences(wire) -> None:
+    stub = wire(
+        RecordQB(
+            transfer={"up_rate_limit": 0, "dl_rate_limit": 0},
+            prefs={"alt_up_limit": 786432, "alt_dl_limit": 0},
+        )
+    )
+
+    out = server.qb_set_limit("test", up=2097152, mode="alternative")
+
+    assert not out.startswith("ERROR:"), out
+    path, data = stub.posts[0]
+    assert path == "/api/v2/app/setPreferences"
+    assert '"alt_up_limit": 2097152' in data["json"]
+
+
+def test_set_limit_alternative_mode_rejects_per_torrent(wire) -> None:
+    wire(RecordQB())
+
+    out = server.qb_set_limit("test", up=1, hashes=["a" * 40], mode="alternative")
+
+    assert out.startswith("ERROR:")
+    assert "global only" in out
+
+
+def test_set_share_mode_maps_to_the_enum(wire) -> None:
+    stub = wire(RecordQB())
+
+    server.qb_set_share("test", hashes=["a" * 40], ratio=1.0, mode="all")
+
+    assert stub.posts[0][1]["shareLimitsMode"] == "MatchAll"
+
+
+def test_set_share_rejects_an_unknown_mode(wire) -> None:
+    wire(RecordQB())
+
+    assert server.qb_set_share("test", hashes=["a" * 40], ratio=1.0, mode="x").startswith(
+        "ERROR:"
+    )

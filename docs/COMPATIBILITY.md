@@ -7,7 +7,7 @@
 | 适用版本 | `qb-mcp` v0.2.0 起 |
 | 数据来源 | `qbittorrent/qBittorrent` 源码逐 tag 审计 |
 | 机器可读表 | [`compatibility.json`](./compatibility.json) |
-| 最后更新 | 2026-11-04 |
+| 最后更新 | 2026-11-05 |
 
 ---
 
@@ -101,7 +101,22 @@ qBittorrent 的 WebUI 接口在 5.0 和 5.2、5.3 三个版本上各改了一批
 
 ---
 
-## 6. 已知边界
+## 6. 限速的三个来源（别混用）
+
+| 概念 | 接口 | 单位 | 语义 |
+|---|---|---|---|
+| 全局限速（生效值） | `transfer/info` 的 `up_rate_limit` / `dl_rate_limit` | 字节/秒 | 当前真正生效的上限（备用模式开启时是备用值） |
+| 全局限速（正常模式） | `preferences` 的 `up_limit` / `dl_limit` | 字节/秒 | 关闭备用模式时使用的值 |
+| 备用限速 | `preferences` 的 `alt_up_limit` / `alt_dl_limit` | 字节/秒 | 备用模式开启时使用的值 |
+
+> 官方 wiki 写的是「KiB/s」，但源码（`appcontroller.cpp` 直接读写
+> `session->globalUploadSpeedLimit()`）表明实际单位是**字节/秒**。本项目按字节处理。
+
+`qb_set_limit` 的 `mode` 参数决定改哪一个：`normal`（默认）改正常模式，`alternative`
+改备用限速（走 `app/setPreferences`）。备用模式开启时写入全局限速不会立刻改变实际速率，
+工具会给出说明而不是报错。
+
+## 7. 已知边界
 
 - 只覆盖 **4.6.0 及以上**；4.5 及更早未审计，不在支持范围。
 - 审计脚本抽取的是**源码事实**，不包含打包差异（发行版可能自行打补丁），因此仍需实盘验收。

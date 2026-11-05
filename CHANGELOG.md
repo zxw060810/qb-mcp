@@ -5,6 +5,32 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] (0.2.1 追加)
+
+### Fixed
+
+- `qb_set_limit` no longer reports a false failure when alternative speed limits
+  are switched on. It now reads the mode first, explains that the effective
+  limit is the alternative one, and only errors when the write really failed.
+- `qb_diagnose` shows the three rate limits separately (effective global,
+  alternative, current throughput) instead of presenting one number with two
+  meanings. The `preferences` limit fields are bytes/second in the source, not
+  KiB/second as the wiki claims.
+- 400 responses that mean "missing required parameter" now say so in plain
+  language and point at the compatibility document, instead of a bare status code.
+
+### Added
+
+- `qb_set_limit(mode="alternative")` edits the alternative limits through
+  `app/setPreferences` and verifies the readback.
+- `qb_set_share(mode=...)` exposes `shareLimitsMode` (default / any / all),
+  which qBittorrent 5.3+ honours and older versions ignore.
+- Versions below 4.6.0 (outside the audited range) are named in the tool output
+  instead of being silently assumed to work.
+- `mcp` dependency is now bounded (`>=1.28,<3`), CI runs the offline suite
+  against both SDK majors, and a weekly scheduled job re-audits the upstream
+  interface table and fails when qBittorrent changes something.
+
 ## [Unreleased]
 
 ### Fixed

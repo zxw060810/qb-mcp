@@ -33,6 +33,9 @@ class _QB:
     def transfer_info(self) -> dict[str, Any]:
         return {"up_rate_limit": 0, "dl_rate_limit": 0}
 
+    def preferences(self) -> dict[str, Any]:
+        return {}
+
 
 def _boom(_name: str) -> Any:
     raise QBError("refused")
