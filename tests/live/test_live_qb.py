@@ -57,12 +57,24 @@ def live() -> QBClient:
     )
 
 
+class _Toolbox:
+    """工具函数与真实客户端共用同一个入口：qb_* 来自 server，其余来自客户端。"""
+
+    def __init__(self, client: QBClient) -> None:
+        self._client = client
+
+    def __getattr__(self, name: str) -> Any:
+        if hasattr(server, name):
+            return getattr(server, name)
+        return getattr(self._client, name)
+
+
 @pytest.fixture(scope="module")
 def tools(live: QBClient) -> Any:
     """让工具函数指向这个真实客户端（工具逻辑本身是被测对象）。"""
     monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(server, "client", lambda _name: live)
-    yield live
+    yield _Toolbox(live)
     monkeypatch.undo()
 
 
