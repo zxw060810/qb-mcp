@@ -588,21 +588,39 @@ def qb_set_limit(
             scope = "global"
 
         after = qb.transfer_info()
+        per_torrent = (
+            {str(t.get("hash")): t for t in qb.torrents()} if hashes else {}
+        )
     except (QBError, ConfigError) as exc:
         return error_text(exc)
 
     # 写接口对所有情况都返回 200，只能靠读回判断是否真的生效。
+    # 单种限速要读 torrents/info 里每个种子的 up_limit，全局限速才读 transfer/info。
     problems: list[str] = []
-    if up_limit is not None and not same_rate(after.get("up_rate_limit"), up_limit):
-        problems.append(
-            f"upload readback mismatch: wanted {rate_text(up_limit)}, "
-            f"got {rate_text(after.get('up_rate_limit'))}"
-        )
-    if dl_limit is not None and not same_rate(after.get("dl_rate_limit"), dl_limit):
-        problems.append(
-            f"download readback mismatch: wanted {rate_text(dl_limit)}, "
-            f"got {rate_text(after.get('dl_rate_limit'))}"
-        )
+    if hashes:
+        for torrent_hash in hashes:
+            row = per_torrent.get(torrent_hash) or {}
+            if up_limit is not None and not same_rate(row.get("up_limit"), up_limit):
+                problems.append(
+                    f"{torrent_hash[:8]}: upload limit reads back "
+                    f"{rate_text(row.get('up_limit'))}, expected {rate_text(up_limit)}"
+                )
+            if dl_limit is not None and not same_rate(row.get("dl_limit"), dl_limit):
+                problems.append(
+                    f"{torrent_hash[:8]}: download limit reads back "
+                    f"{rate_text(row.get('dl_limit'))}, expected {rate_text(dl_limit)}"
+                )
+    else:
+        if up_limit is not None and not same_rate(after.get("up_rate_limit"), up_limit):
+            problems.append(
+                f"upload readback mismatch: wanted {rate_text(up_limit)}, "
+                f"got {rate_text(after.get('up_rate_limit'))}"
+            )
+        if dl_limit is not None and not same_rate(after.get("dl_rate_limit"), dl_limit):
+            problems.append(
+                f"download readback mismatch: wanted {rate_text(dl_limit)}, "
+                f"got {rate_text(after.get('dl_rate_limit'))}"
+            )
     if problems:
         return f"ERROR: [{instance}] speed limit did not take effect - " + "; ".join(problems)
 

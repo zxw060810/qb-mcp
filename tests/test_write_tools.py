@@ -611,3 +611,17 @@ def test_add_uploads_the_torrent_file_as_multipart(wire, tmp_path) -> None:
     assert path == "/api/v2/torrents/add"
     assert stub.post_kwargs[0].get("files"), "torrent 文件必须以 files 字段上传"
     assert "torrents" in stub.post_kwargs[0]["files"]
+
+
+def test_set_limit_per_torrent_reads_back_the_torrent_not_the_global(wire) -> None:
+    stub = wire(
+        RecordQB(
+            transfer={"up_rate_limit": 0, "dl_rate_limit": 0},
+            torrents=[_torrent(up_limit=1048576)],
+        )
+    )
+
+    out = server.qb_set_limit("test", up=1048576, hashes=["a" * 40])
+
+    assert not out.startswith("ERROR:"), out
+    assert stub.posts[0][0] == "/api/v2/torrents/setUploadLimit"
