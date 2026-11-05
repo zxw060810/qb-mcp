@@ -5,7 +5,7 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] (0.2.1 追加)
+## [0.2.0] - 2026-11-05
 
 ### Fixed
 
@@ -30,8 +30,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `mcp` dependency is now bounded (`>=1.28,<3`), CI runs the offline suite
   against both SDK majors, and a weekly scheduled job re-audits the upstream
   interface table and fails when qBittorrent changes something.
-
-## [Unreleased]
 
 ### Fixed
 

@@ -427,3 +427,17 @@ def test_module_entrypoint_prints_the_version(monkeypatch) -> None:
 
     with pytest.raises(SystemExit):
         runpy.run_module("qb_mcp.server", run_name="__main__", alter_sys=True)
+
+
+def test_reported_version_matches_pyproject() -> None:
+    """客户端看到的版本号必须与打包版本一致，否则升级后会被误判。"""
+    from pathlib import Path
+
+    import tomllib
+
+    import qb_mcp
+
+    pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    declared = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["version"]
+
+    assert qb_mcp.__version__ == declared
