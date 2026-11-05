@@ -4,9 +4,9 @@
 
 [![CI](https://github.com/zxw060810/qb-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/zxw060810/qb-mcp/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/qb-mcp.svg)](https://pypi.org/project/qb-mcp/)
-[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://github.com/zxw060810/qb-mcp/blob/main/pyproject.toml)
-[![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)](https://github.com/zxw060810/qb-mcp/blob/main/docs/TESTLIST.md)
-[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/zxw060810/qb-mcp/blob/main/LICENSE)
+[![Python](https://img.shields.io/badge/dynamic/toml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fzxw060810%2Fqb-mcp%2Fmain%2Fpyproject.toml&query=%24.project.requires-python&label=python&color=blue)](https://github.com/zxw060810/qb-mcp/blob/main/pyproject.toml)
+[![Coverage](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fzxw060810%2Fqb-mcp%2Fmain%2Fdocs%2Fcoverage.json&query=%24.percent&suffix=%25&label=coverage&color=brightgreen)](https://github.com/zxw060810/qb-mcp/blob/main/docs/TESTLIST.md)
+[![License](https://img.shields.io/github/license/zxw060810/qb-mcp)](https://github.com/zxw060810/qb-mcp/blob/main/LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-streamable%20http%20%7C%20stdio-8b5cf6.svg)](https://modelcontextprotocol.io)
 
 > 本项目非官方项目，与 qBittorrent 团队无关，也未获其背书或支持。
