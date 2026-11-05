@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   # -- Class A: offline behaviour tests across supported Python versions ----
@@ -30,18 +35,25 @@ jobs:
       # Fail fast if the interpreter is not the clean shape we think it is
       # (mcp major version, package resolves to this checkout, test count).
       - name: Environment gate
-        run: python scripts/env_check.py --env A --no-net --expect-tests 130
+        run: python scripts/env_check.py --env A --no-net --expect-tests 303
 
       - name: "Class A - offline behaviour"
         run: pytest -q --ignore=tests/live --cov=qb_mcp --cov-report=term-missing
 
   # -- Class B: the only job that talks to a real qBittorrent ---------------
-  # Runs on main only. Any failure here means a belief encoded in Class A has
-  # gone stale, so it is not treated as flaky.
+  # One container per audited generation (see docs/compatibility.json).
+  # Any failure here means a belief encoded in Class A has gone stale, so it
+  # is not treated as flaky.
   live:
     runs-on: ubuntu-latest
     needs: test
-    if: github.ref == 'refs/heads/main'
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        # 四段分叉各取一个 tag：4.6.x / 5.0-5.1 / 5.2.x / 5.3.x
+        qb_version: ["4.6.7", "5.1.4", "5.2.4", "5.3.0"]
+    name: "live qBittorrent ${{ matrix.qb_version }}"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -50,18 +62,25 @@ jobs:
       - name: Install
         run: pip install -e ".[dev]"
 
-      - name: Start qBittorrent container
+      - name: Start qBittorrent ${{ matrix.qb_version }}
         run: |
           docker run -d --name qb -p 8080:8080 \
-            qbittorrentofficial/qbittorrent-nox:latest
-          for i in $(seq 90); do
+            qbittorrentofficial/qbittorrent-nox:${{ matrix.qb_version }}
+          ready=no
+          for i in $(seq 180); do
             code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/ || true)
             if [ -n "$code" ] && [ "$code" != "000" ]; then
               echo "WebUI answered HTTP $code after ${i}s"
+              ready=yes
               break
             fi
             sleep 1
           done
+          if [ "$ready" != "yes" ]; then
+            echo "::error::container did not answer within 180s"
+            docker logs qb 2>&1 | tail -40
+            exit 1
+          fi
           echo "--- container log ---"
           docker logs qb 2>&1 | tail -30
 
@@ -81,13 +100,22 @@ jobs:
           echo "::add-mask::$PW"
           echo "value=$PW" >> "$GITHUB_OUTPUT"
 
-      - name: "Class B - live qBittorrent"
+      - name: "Class B - live qBittorrent ${{ matrix.qb_version }}"
         env:
           QB_TEST_URL: http://127.0.0.1:8080
           QB_TEST_USER: admin
           QB_TEST_PASS: ${{ steps.qbpass.outputs.value }}
         run: pytest tests/live -q -rs
 
-      - name: Container log on failure
+      - name: Container log and torrent dump on failure
         if: failure()
-        run: docker logs qb 2>&1 | tail -60
+        run: |
+          mkdir -p artifacts
+          docker logs qb > artifacts/container-${{ matrix.qb_version }}.log 2>&1 || true
+          curl -s http://127.0.0.1:8080/api/v2/torrents/info > artifacts/torrents-${{ matrix.qb_version }}.json || true
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: live-failure-${{ matrix.qb_version }}
+          path: artifacts/
