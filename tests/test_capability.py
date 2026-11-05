@@ -137,11 +137,11 @@ def test_zero_and_minus_one_are_the_same_limit() -> None:
     assert limits.same_rate(524288, 1048576) is False
 
 
-def test_seconds_to_minutes_keeps_sentinels() -> None:
-    assert limits.seconds_to_minutes(-1) == -1
-    assert limits.seconds_to_minutes(-2) == -2
-    assert limits.seconds_to_minutes(60) == 1
-    assert limits.seconds_to_minutes(3600) == 60
+def test_normalize_rate_rejects_garbage_and_same_rate_is_false() -> None:
+    with pytest.raises(ValueError):
+        limits.normalize_rate("abc")
+    assert limits.same_rate("abc", 1) is False
+    assert limits.is_unlimited("abc") is True
 
 
 def test_rate_text_marks_unlimited() -> None:

@@ -48,19 +48,6 @@ def same_rate(left: Any, right: Any) -> bool:
         return False
 
 
-def seconds_to_minutes(seconds: Any) -> int:
-    """把秒换算成分钟，向上取整到至少 1 分钟；``-1``/``-2`` 原样保留。"""
-    if seconds in (-1, -2, "-1", "-2"):
-        return int(seconds)
-    try:
-        value = float(seconds)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"not a number: {seconds!r}") from exc
-    if value <= 0:
-        return int(value)
-    return max(1, round(value / 60))
-
-
 def rate_text(value: Any) -> str:
     """人类可读的速率文本，供工具输出使用。"""
     if is_unlimited(value):

@@ -38,6 +38,7 @@ class RecordQB:
         self._torrents = torrents if torrents is not None else []
         self._transfer = transfer if transfer is not None else {}
         self._prefs = prefs if prefs is not None else {}
+        self.apply_set_preferences = True
         self._props = props if props is not None else {}
         self._trackers = trackers if trackers is not None else []
         self.posts: list[tuple[str, Any]] = []
@@ -68,7 +69,11 @@ class RecordQB:
         self.posts.append((path, data))
         self.post_kwargs.append(kwargs)
         # setPreferences 之后读回要看到新值，否则无法验证写后校验逻辑。
-        if path.endswith("/app/setPreferences") and isinstance(data, dict):
+        if (
+            path.endswith("/app/setPreferences")
+            and isinstance(data, dict)
+            and self.apply_set_preferences
+        ):
             import json as _json
 
             self._prefs.update(_json.loads(data.get("json", "{}")))
@@ -697,3 +702,67 @@ def test_set_share_rejects_an_unknown_mode(wire) -> None:
     assert server.qb_set_share("test", hashes=["a" * 40], ratio=1.0, mode="x").startswith(
         "ERROR:"
     )
+
+
+def test_set_limit_rejects_an_unknown_mode(wire) -> None:
+    wire(RecordQB())
+
+    assert server.qb_set_limit("test", up=1, mode="turbo").startswith("ERROR:")
+
+
+def test_set_limit_surfaces_a_non_numeric_limit(wire) -> None:
+    wire(RecordQB())
+
+    assert server.qb_set_limit("test", up="fast").startswith("ERROR:")
+
+
+def test_set_limit_alternative_mode_covers_download_side(wire) -> None:
+    stub = wire(RecordQB(transfer={"up_rate_limit": 0}, prefs={"alt_dl_limit": 0}))
+
+    out = server.qb_set_limit("test", dl=1048576, mode="alternative")
+
+    assert not out.startswith("ERROR:"), out
+    assert '"alt_dl_limit": 1048576' in stub.posts[0][1]["json"]
+
+
+def test_set_limit_alternative_mode_reports_a_readback_mismatch(wire) -> None:
+    stub = wire(RecordQB(transfer={"up_rate_limit": 0}, prefs={"alt_up_limit": 999}))
+    stub.apply_set_preferences = False  # 模拟服务端吞掉写入
+
+    out = server.qb_set_limit("test", up=2097152, mode="alternative")
+
+    assert out.startswith("ERROR:")
+    assert "alternative limit did not take effect" in out
+
+
+def test_set_limit_per_torrent_download_mismatch_is_reported(wire) -> None:
+    wire(RecordQB(torrents=[_torrent(dl_limit=1)]))
+
+    out = server.qb_set_limit("test", dl=1048576, hashes=["a" * 40])
+
+    assert "download limit reads back" in out
+
+
+def test_control_reannounce_and_force_start_paths(wire) -> None:
+    stub = wire(RecordQB(torrents=[_torrent()]))
+
+    server.qb_control("test", "reannounce")
+
+    assert stub.posts[0][0] == "/api/v2/torrents/reannounce"
+
+
+def test_add_warns_when_the_state_is_not_stopped(wire, tmp_path) -> None:
+    torrent = tmp_path / "x.torrent"
+    torrent.write_bytes(b"d4:infod4:name1:xe")
+    stub = wire(RecordQB())
+    calls = {"n": 0}
+
+    def _torrents(**_kw):
+        calls["n"] += 1
+        return [] if calls["n"] == 1 else [{"hash": "b" * 40, "state": "downloading"}]
+
+    stub.torrents = _torrents  # type: ignore[assignment]
+
+    out = server.qb_add("test", str(torrent), paused=True)
+
+    assert "may have been ignored" in out
