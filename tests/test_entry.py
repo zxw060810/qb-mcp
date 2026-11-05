@@ -431,13 +431,14 @@ def test_module_entrypoint_prints_the_version(monkeypatch) -> None:
 
 def test_reported_version_matches_pyproject() -> None:
     """客户端看到的版本号必须与打包版本一致，否则升级后会被误判。"""
+    import re
     from pathlib import Path
-
-    import tomllib
 
     import qb_mcp
 
+    # 不用 tomllib：它只在 Python 3.11+ 才有，而 CI 仍然跑 3.10。
     pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
-    declared = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["version"]
+    match = re.search(r'(?m)^version = "([^"]+)"', pyproject.read_text(encoding="utf-8"))
+    assert match is not None, "pyproject.toml 里没有 version 字段"
 
-    assert qb_mcp.__version__ == declared
+    assert qb_mcp.__version__ == match.group(1)
