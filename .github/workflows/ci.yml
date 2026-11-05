@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  schedule:
+    # 每周一 03:00 UTC 重跑接口审计，上游改接口时主动报警
+    - cron: "0 3 * * 1"
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -39,6 +42,58 @@ jobs:
 
       - name: "Class A - offline behaviour"
         run: pytest -q --ignore=tests/live --cov=qb_mcp --cov-report=term-missing
+
+  # -- The mcp SDK has two majors; both must keep working --------------------
+  mcp-matrix:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        mcp: ["mcp==1.28.1", "mcp"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -e ".[dev]" && pip install "${{ matrix.mcp }}"
+      - name: Report the resolved SDK version
+        run: python -c "import importlib.metadata as m; print('mcp', m.version('mcp'))"
+      - name: "Offline suite against ${{ matrix.mcp }}"
+        run: pytest -q --ignore=tests/live tests/test_transport.py tests/test_entry.py tests/test_capability.py
+
+  # -- Weekly contract audit: does upstream still match our table? -----------
+  audit:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Re-audit every supported tag
+        run: python scripts/audit_compat.py --out /tmp/compat.json
+      - name: Compare with the committed contract
+        run: |
+          python - <<'PY'
+          import json, sys
+          old = json.load(open("docs/compatibility.json"))["tags"]
+          new = json.load(open("/tmp/compat.json"))["tags"]
+          old_by = {row["tag"]: row for row in old}
+          diffs = []
+          for row in new:
+              seen = old_by.get(row["tag"])
+              if seen is None:
+                  diffs.append(f"{row['tag']}: new tag, not in the committed table")
+              elif seen != row:
+                  keys = [k for k in row if seen.get(k) != row[k]]
+                  diffs.append(f"{row['tag']}: {', '.join(keys)} changed")
+          if diffs:
+              print("\n".join(diffs))
+              print("::error::upstream changed; regenerate docs/compatibility.json")
+              sys.exit(1)
+          print("contract still matches upstream")
+          PY
 
   # -- One-off helper: which qBittorrent image tags actually exist -----------
   probe:
