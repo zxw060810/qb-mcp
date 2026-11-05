@@ -90,7 +90,8 @@ jobs:
       - name: Start qBittorrent ${{ matrix.qb_version }}
         run: |
           docker run -d --name qb -p 8080:8080 \
-            qbittorrentofficial/qbittorrent-nox:${{ matrix.qb_version }}
+            -e PUID=1000 -e PGID=1000 -e TZ=Etc/UTC \
+            linuxserver/qbittorrent:${{ matrix.qb_version }}
           ready=no
           for i in $(seq 180); do
             code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/ || true)
