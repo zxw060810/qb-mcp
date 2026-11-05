@@ -247,7 +247,8 @@ def test_detail_reveals_the_full_url_only_when_asked(wire) -> None:
         ("http://tracker.example:8080/a?b=c", "http://tracker.example:8080"),
         ("", "(no url)",
         ),
-        ("not-a-url", "(hidden)"),
+        ("not-a-url", "not-a-url"),
+        ("** [DHT] **", "[DHT]"),
     ],
 )
 def test_redact_tracker_url(raw: str, expected: str) -> None:
@@ -766,3 +767,18 @@ def test_add_warns_when_the_state_is_not_stopped(wire, tmp_path) -> None:
     out = server.qb_add("test", str(torrent), paused=True)
 
     assert "may have been ignored" in out
+
+
+def test_detail_falls_back_to_the_torrent_row_for_state(wire) -> None:
+    """5.x 的 torrents/properties 不含 state，必须从种子列表里取。"""
+    wire(
+        RecordQB(
+            props={"name": "No State Here"},
+            torrents=[_torrent(state="forcedUP")],
+        )
+    )
+
+    out = server.qb_detail("test", hash="a" * 40)
+
+    assert "强制做种" in out
+    assert "unknown" not in out

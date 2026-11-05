@@ -219,9 +219,17 @@ def redact_tracker_url(url: str) -> str:
         return "(no url)"
     match = re.match(r"^(https?)://([^/?#]+)", raw, re.IGNORECASE)
     if match is None:
-        return "(hidden)"
+        # 不是 http(s) 链接的是 DHT/PEX/LSD 这类伪 tracker，本身不含密钥，
+        # 去掉 qBittorrent 加的星号即可。
+        return raw.strip("* ").strip() or "(no url)"
     scheme, host = match.groups()
     return f"{scheme.lower()}://{host}"
+
+
+def _state_text(props: dict[str, Any], row: dict[str, Any]) -> str:
+    """5.x 的 properties 不含 state，退回种子列表里的值。"""
+    raw = props.get("state") or row.get("state") or ""
+    return STATE_LABELS.get(str(raw), str(raw) if raw else "unknown")
 
 
 def error_text(exc: Exception) -> str:
@@ -370,13 +378,17 @@ def qb_detail(
         qb = client(instance)
         props = qb.get("/api/v2/torrents/properties", hash=torrent_hash) or {}
         trackers = qb.trackers(torrent_hash)
+        # 5.x 的 torrents/properties 不再返回 state，只能从种子列表里取。
+        row = next(
+            (t for t in qb.torrents() if str(t.get("hash")) == torrent_hash), {}
+        )
     except (QBError, ConfigError) as exc:
         return error_text(exc)
 
     lines = [
         f"[{instance}] {props.get('name')}",
         f"  hash        : {torrent_hash}",
-        f"  state       : {STATE_LABELS.get(str(props.get('state')), props.get('state'))}",
+        f"  state       : {_state_text(props, row)}",
         f"  size        : {gb(props.get('total_size')):.2f} GB",
         f"  progress    : {float(props.get('progress') or 0) * 100:.1f}%",
         f"  ratio       : {props.get('share_ratio')}",
