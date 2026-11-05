@@ -102,13 +102,19 @@ class QBClient:
         *,
         params: dict[str, Any] | None = None,
         data: Any = None,
+        files: Any = None,
         retry: bool = True,
     ) -> Any:
         """Perform a request, re-authenticating once on 401/403."""
         url = self.instance.base_url + path
         try:
             response = self.session.request(
-                method, url, params=params, data=data, timeout=self.instance.timeout
+                method,
+                url,
+                params=params,
+                data=data,
+                files=files,
+                timeout=self.instance.timeout,
             )
         except requests.RequestException as exc:
             raise QBError(f"{self.instance.display}: request to {path} failed: {exc}") from exc
@@ -117,7 +123,12 @@ class QBClient:
             self.reset()
             try:
                 response = self.session.request(
-                    method, url, params=params, data=data, timeout=self.instance.timeout
+                    method,
+                    url,
+                    params=params,
+                    data=data,
+                    files=files,
+                    timeout=self.instance.timeout,
                 )
             except requests.RequestException as exc:
                 raise QBError(
@@ -145,8 +156,10 @@ class QBClient:
     def get(self, path: str, **params: Any) -> Any:
         return self.request("GET", path, params=params or None)
 
-    def post(self, path: str, data: Any = None, **params: Any) -> Any:
-        return self.request("POST", path, params=params or None, data=data)
+    def post(
+        self, path: str, data: Any = None, files: Any = None, **params: Any
+    ) -> Any:
+        return self.request("POST", path, params=params or None, data=data, files=files)
 
     # -- convenience --------------------------------------------------------
 

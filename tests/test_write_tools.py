@@ -594,3 +594,20 @@ def test_write_tools_surface_client_errors(wire, monkeypatch: pytest.MonkeyPatch
     assert server.qb_control("test", "pause").startswith("ERROR:")
     assert server.qb_set_limit("test", up=1).startswith("ERROR:")
     assert server.qb_remove("test", ["a" * 40]).startswith("ERROR:")
+
+
+# -- 上传种子必须走 multipart（D5 的配套回归） ------------------------------
+
+
+def test_add_uploads_the_torrent_file_as_multipart(wire, tmp_path) -> None:
+    """只把文件塞进查询参数会让服务端收到空请求，qBittorrent 回 409。"""
+    torrent = tmp_path / "sample.torrent"
+    torrent.write_bytes(b"d4:infod4:name1:xe")
+    stub = wire(RecordQB())
+
+    server.qb_add("test", str(torrent), paused=True)
+
+    path, _data = stub.posts[0]
+    assert path == "/api/v2/torrents/add"
+    assert stub.post_kwargs[0].get("files"), "torrent 文件必须以 files 字段上传"
+    assert "torrents" in stub.post_kwargs[0]["files"]
