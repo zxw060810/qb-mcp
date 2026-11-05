@@ -24,6 +24,7 @@ from qb_mcp.client import QBClient
 from qb_mcp.config import InstanceConfig
 
 TORRENT_NAME = "qb-mcp-live-selftest.txt"
+TEST_CATEGORY = "qb-mcp-selftest"
 
 
 # -- 环境与夹具 -------------------------------------------------------------
@@ -142,9 +143,29 @@ def _cleanup(live: QBClient) -> None:
 
 @pytest.fixture(scope="module", autouse=True)
 def _isolated(live: QBClient):
+    """把容器调整到可测状态，并在结束时复原。"""
     _cleanup(live)
+
+    # 备用限速模式会覆盖全局限速，读回永远是"不限"，先关掉。
+    prefs = live.preferences()
+    if prefs.get("use_alt_speed_limits") or int(prefs.get("speed_limits_mode") or 0) == 1:
+        live.post("/api/v2/transfer/toggleSpeedLimitsMode")
+
+    # 分类必须先存在，否则 setCategory 返回 409 Incorrect category name。
+    live.post(
+        "/api/v2/torrents/createCategory",
+        data={"category": TEST_CATEGORY, "savePath": ""},
+    )
+
     yield
+
     _cleanup(live)
+    for torrent in live.torrents():
+        if torrent.get("category") == TEST_CATEGORY:
+            live.post(
+                "/api/v2/torrents/removeCategories", data={"categories": TEST_CATEGORY}
+            )
+            break
 
 
 # -- 只读 ---------------------------------------------------------------
@@ -262,13 +283,11 @@ def test_09_share_limit_is_accepted_and_persisted(tools: QBClient) -> None:
 def test_10_category_and_tags_are_applied(tools: QBClient) -> None:
     row = _row(tools)
     assert row is not None
-    out = tools.qb_category(
-        "live", [str(row["hash"])], category="qb-mcp-selftest", tags=["ci"]
-    )
+    out = tools.qb_category("live", [str(row["hash"])], category=TEST_CATEGORY, tags=["ci"])
 
     assert "ERROR" not in out, out
     after = _row(tools)
-    assert after.get("category") == "qb-mcp-selftest"
+    assert after.get("category") == TEST_CATEGORY
 
 
 def test_11_paused_filter_does_not_silently_return_everything(tools: QBClient) -> None:
