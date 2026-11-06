@@ -5,6 +5,25 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-11-06
+
+### Fixed
+
+- `qb_detail` printed `state: None` on qBittorrent 5.x, where `torrents/properties`
+  no longer carries a `state` field. The value now comes from the torrent list.
+- DHT, PeX and LSD entries (`** [DHT] **`) were rendered as `(hidden)` after the
+  tracker redaction added in 0.2.0. They hold no credential, so they are shown
+  as `[DHT]`, `[PeX]`, `[LSD]`.
+- `src/qb_mcp/__init__.py` reported `0.1.0` regardless of the packaged version, so
+  MCP clients were told the wrong version. A test now keeps it in sync with
+  `pyproject.toml`.
+
+### Changed
+
+- README badges for Python version, licence and coverage are read from the
+  repository instead of being hardcoded strings; the coverage figure is
+  recomputed on every push to `main`.
+
 ## [0.2.0] - 2026-11-05
 
 ### Fixed
