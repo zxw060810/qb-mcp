@@ -5,6 +5,22 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- `qb_diagnose` reports the WebUI API version next to the qBittorrent version; it is
+  the first thing to look at when a release changes behaviour.
+
+### Tests
+
+- Added error-path coverage: API failures inside `qb_list`, a download-side readback
+  mismatch, alternative-limit write failures and mismatches, error-body truncation,
+  and the version helpers. Line coverage is now 100% locally except the mcp 2.x
+  import branch, which only the CI `mcp-matrix` job can reach.
+- `scripts/mutation_check.py` breaks each covered branch on purpose and checks the
+  corresponding test goes red, so a test that can never fail cannot be added unnoticed.
+
 ## [0.2.1] - 2026-11-06
 
 ### Fixed

@@ -33,6 +33,7 @@ class RecordQB:
         prefs: dict[str, Any] | None = None,
         props: dict[str, Any] | None = None,
         trackers: list[dict[str, Any]] | None = None,
+        raise_on: str | None = None,
     ) -> None:
         self._version = version
         self._torrents = torrents if torrents is not None else []
@@ -41,17 +42,25 @@ class RecordQB:
         self.apply_set_preferences = True
         self._props = props if props is not None else {}
         self._trackers = trackers if trackers is not None else []
+        # 让指定方法抛 QBError，用来走工具里的异常分支。
+        self._raise_on = raise_on
         self.posts: list[tuple[str, Any]] = []
         self.post_kwargs: list[dict[str, Any]] = []
         self.gets: list[tuple[str, dict[str, Any]]] = []
         self.torrent_calls: list[dict[str, Any]] = []
         self._transfer_reads = 0
 
+    def _fail_if_asked(self, name: str) -> None:
+        if self._raise_on == name:
+            raise QBError(f"stub: {name} exploded")
+
     def version(self) -> str:
+        self._fail_if_asked("version")
         return self._version
 
     def torrents(self, **params: Any) -> list[dict[str, Any]]:
         self.torrent_calls.append(params)
+        self._fail_if_asked("torrents")
         return self._torrents
 
     def preferences(self) -> dict[str, Any]:
@@ -66,6 +75,7 @@ class RecordQB:
         return self._transfer
 
     def post(self, path: str, data: Any = None, **kwargs: Any) -> None:
+        self._fail_if_asked("post")
         self.posts.append((path, data))
         self.post_kwargs.append(kwargs)
         # setPreferences 之后读回要看到新值，否则无法验证写后校验逻辑。
@@ -782,3 +792,52 @@ def test_detail_falls_back_to_the_torrent_row_for_state(wire) -> None:
 
     assert "强制做种" in out
     assert "unknown" not in out
+
+
+# -- 错误路径（不为凑覆盖率，只为"出问题时能诊断"） ------------------------
+
+
+def test_list_surfaces_api_errors_with_the_instance_name(wire) -> None:
+    wire(RecordQB(raise_on="torrents"))
+
+    out = server.qb_list("test")
+
+    assert out.startswith("ERROR:")
+    assert "exploded" in out
+
+
+def test_global_download_limit_mismatch_is_reported(wire) -> None:
+    """上传成功、下载没生效时必须单独指出下载那一侧。"""
+    wire(
+        RecordQB(
+            transfer=[
+                {"up_rate_limit": 0, "dl_rate_limit": 0},
+                {"up_rate_limit": 1048576, "dl_rate_limit": 0},
+            ]
+        )
+    )
+
+    out = server.qb_set_limit("test", up=1048576, dl=1048576)
+
+    assert out.startswith("ERROR:")
+    assert "download readback mismatch" in out
+    assert "1.0 MB/s" in out
+
+
+def test_alternative_limit_write_failure_is_caught(wire) -> None:
+    wire(RecordQB(raise_on="post"))
+
+    out = server.qb_set_limit("test", up=1048576, mode="alternative")
+
+    assert out.startswith("ERROR:")
+    assert "exploded" in out
+
+
+def test_alternative_download_limit_mismatch_is_reported(wire) -> None:
+    stub = wire(RecordQB(transfer={"up_rate_limit": 0}, prefs={"alt_dl_limit": 0}))
+    stub.apply_set_preferences = False
+
+    out = server.qb_set_limit("test", dl=1048576, mode="alternative")
+
+    assert out.startswith("ERROR:")
+    assert "alternative download limit" in out

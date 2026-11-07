@@ -46,6 +46,9 @@ class StubQB:
     def version(self) -> str:
         return self._version
 
+    def webapi_version(self) -> str:
+        return "2.15.1"
+
     def server_state(self) -> dict[str, Any]:
         return self._state
 
@@ -223,3 +226,12 @@ def test_diagnose_reports_when_every_torrent_is_stopped(wire) -> None:
     out = server.qb_diagnose("test")
 
     assert "所有种子都处于停止/暂停状态" in out
+
+
+def test_diagnosis_header_reports_the_webapi_version(wire) -> None:
+    """接口版本是排查"这个版本支持什么"的第一个线索，必须显示。"""
+    wire(StubQB(state=_state(), prefs={"listen_port": 634}))
+
+    out = server.qb_diagnose("test")
+
+    assert "接口 2.15.1" in out

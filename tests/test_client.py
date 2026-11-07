@@ -148,3 +148,55 @@ def test_missing_parameter_errors_are_turned_into_an_upgrade_hint(monkeypatch, i
         client.post("/api/v2/torrents/setShareLimits", data={})
 
     assert "upgrade qb-mcp" in str(excinfo.value)
+
+
+def test_long_error_bodies_are_truncated(monkeypatch, instance) -> None:
+    """错误正文过长会淹没日志，截断后仍要保留前 200 字符。"""
+    from qb_mcp.client import QBClient, QBError
+
+    body = "缺少必需参数：" + "x" * 300
+
+    class _Resp:
+        status_code = 500
+        text = body
+        content = b"x"
+
+    class _Session:
+        headers: dict[str, str] = {}
+
+        def request(self, *_a, **_kw):
+            return _Resp()
+
+    client = QBClient(instance)
+    client._session = _Session()
+
+    with pytest.raises(QBError) as excinfo:
+        client.post("/api/v2/torrents/add", data={})
+
+    message = str(excinfo.value)
+    kept = message.rsplit(" - ", 1)[1]
+    assert kept == body[:200] + "…"
+    assert len(kept) == 201
+
+
+def test_webapi_version_is_read_and_stripped(instance) -> None:
+    from qb_mcp.client import QBClient
+
+    class _Resp:
+        status_code = 200
+        content = b"x"
+        text = '"2.15.1"\n'
+
+        def json(self):
+            return "2.15.1\n"
+
+    class _Session:
+        headers: dict[str, str] = {}
+
+        def request(self, *_a, **_kw):
+            return _Resp()
+
+    client = QBClient(instance)
+    client._session = _Session()
+
+    assert client.webapi_version() == "2.15.1"
