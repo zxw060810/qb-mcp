@@ -170,3 +170,8 @@ def test_version_note_is_empty_inside_the_audited_range() -> None:
     assert server.version_note(capabilities_for("v5.2.4")) == ""
     assert "below the audited range" in server.version_note(capabilities_for("v4.5.0"))
     assert "unreadable" in server.version_note(capabilities_for("?"))
+
+
+@pytest.mark.parametrize(("raw", "expected"), [("v4.6.4", 4), ("v5.2.4", 5), ("", None)])
+def test_major_is_derived_from_the_version(raw: str, expected: int | None) -> None:
+    assert capabilities_for(raw).major == expected

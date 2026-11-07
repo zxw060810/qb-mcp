@@ -422,6 +422,8 @@ def qb_diagnose(instance: str, hash: str = "") -> str:
     try:
         qb = client(instance)
         version = qb.version()
+        # 接口版本不参与分支判定，只用于排查"这个版本到底支持什么"。
+        webapi = qb.webapi_version() if hasattr(qb, "webapi_version") else "未知"
         info = qb.server_state() or qb.transfer_info()
         prefs = qb.preferences()
         torrents = qb.torrents()
@@ -510,7 +512,7 @@ def qb_diagnose(instance: str, hash: str = "") -> str:
     verdict = "、".join(verdict_bits) if verdict_bits else "端口、tracker、限速与需求方均正常"
     return "\n".join(
         [
-            f"[{instance}] DIAGNOSIS (qBittorrent {version})",
+            f"[{instance}] DIAGNOSIS (qBittorrent {version}, 接口 {webapi})",
             f"  结论: {verdict}",
             "  证据:",
             *findings,
