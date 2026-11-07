@@ -7,10 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `qb_set_limit` verified the normal limit through `transfer/info`, which reports the
+  *effective* limit: while alternative limits are active that value comes from
+  `alt_*`, so a write that never landed could still be reported as successful. The
+  normal path now verifies `preferences.up_limit` / `dl_limit`, and the alternative
+  path verifies `preferences.alt_*`. `transfer/info` is used only to show what is
+  effective right now.
+- Global limits are stored by qBittorrent as whole KiB (`SessionImpl` keeps
+  `limit / 1024` and multiplies back on read), so a write of 1000000 B/s reads back
+  as 999424 B/s. The comparison now predicts that rounding instead of reporting a
+  false failure, and the output says when a value was rounded.
+- `qb_add` reported success whenever the API answered 2xx, even if no torrent
+  appeared. It now polls for a new torrent (default 10 s, `wait_seconds` to tune)
+  and returns an error if nothing shows up - which also covers duplicate torrents
+  and magnets that never finish fetching metadata.
+
 ### Changed
 
-- `qb_diagnose` reports the WebUI API version next to the qBittorrent version; it is
-  the first thing to look at when a release changes behaviour.
+- `qb_diagnose` prints the WebUI API version next to the qBittorrent version.
 
 ### Tests
 

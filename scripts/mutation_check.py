@@ -27,7 +27,7 @@ MUTATIONS = [
     (
         "全局下载读回不一致",
         "src/qb_mcp/server.py",
-        '        if dl_limit is not None and not same_rate(after.get("dl_rate_limit"), dl_limit):',
+        '        if dl_limit is not None and not same_rate(after_prefs.get(dl_field), want_dl):',
         "        if False and dl_limit is not None:",
         "tests/test_write_tools.py::test_global_download_limit_mismatch_is_reported",
     ),
@@ -73,6 +73,20 @@ MUTATIONS = [
         '        webapi = qb.webapi_version() if hasattr(qb, "webapi_version") else "未知"',
         '        webapi = "未知"',
         "tests/test_diagnose.py::test_diagnosis_header_reports_the_webapi_version",
+    ),
+    (
+        "正常限速改读 preferences",
+        "src/qb_mcp/server.py",
+        '        if up_limit is not None and not same_rate(after_prefs.get(up_field), want_up):',
+        "        if False:",
+        "tests/test_write_tools.py::test_set_limit_reports_when_the_write_had_no_effect",
+    ),
+    (
+        "加种等待新种子",
+        "src/qb_mcp/server.py",
+        "    if not added:",
+        "    if False:",
+        "tests/test_write_tools.py::test_add_fails_when_no_torrent_appears",
     ),
     (
         "client.webapi_version",
