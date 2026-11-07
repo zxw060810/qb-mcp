@@ -48,6 +48,21 @@ def same_rate(left: Any, right: Any) -> bool:
         return False
 
 
+def expected_readback(written: Any) -> int:
+    """qBittorrent 把全局限速按 KiB 整数保存，写入值会被向下取整。
+
+    源码（SessionImpl::setGlobalUploadSpeedLimit）写的是 ``limit / 1024``，读取时
+    再乘回 1024；小于等于 1024 字节的一律存成 1 KiB；0 与负数表示不限。
+    因此"写什么读回什么"不成立，校验必须先算出服务端会保存成多少。
+    """
+    value = normalize_rate(written)
+    if value == UNLIMITED:
+        return UNLIMITED
+    if value <= 1024:
+        return 1024
+    return (value // 1024) * 1024
+
+
 def rate_text(value: Any) -> str:
     """人类可读的速率文本，供工具输出使用。"""
     if is_unlimited(value):

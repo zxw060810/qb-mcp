@@ -16,6 +16,7 @@ import importlib
 import json
 import re
 import sys
+import time
 from typing import Any
 
 from . import __version__
@@ -28,7 +29,7 @@ from .capability import (
 )
 from .client import QBClient, QBError
 from .config import AppConfig, ConfigError, InstanceConfig, load_config
-from .limits import normalize_rate, rate_text, same_rate
+from .limits import expected_readback, normalize_rate, rate_text, same_rate
 
 
 # mcp 2.0 renamed FastMCP to MCPServer and moved version/host/port handling
@@ -124,6 +125,22 @@ def client(name: str) -> QBClient:
     if name not in _CLIENTS:
         _CLIENTS[name] = QBClient(config().get(name))
     return _CLIENTS[name]
+
+
+#: 等待新种子的轮询间隔；测试里会调小。
+TORRENT_POLL_INTERVAL = 0.5
+
+
+def _wait_for_new_torrent(
+    qb: QBClient, before: set[str], wait_seconds: float
+) -> list[dict[str, Any]]:
+    """轮询直到出现新种子或超时。加种接口返回 200 并不等于种子真的进去了。"""
+    deadline = time.monotonic() + max(0.0, wait_seconds)
+    while True:
+        added = [t for t in qb.torrents() if str(t.get("hash")) not in before]
+        if added or time.monotonic() >= deadline:
+            return added
+        time.sleep(min(TORRENT_POLL_INTERVAL, max(0.0, deadline - time.monotonic())))
 
 
 def version_note(caps: Capabilities) -> str:
@@ -628,6 +645,7 @@ def qb_set_limit(
             scope = "global"
 
         after = qb.transfer_info()
+        after_prefs = qb.preferences()
         per_torrent = (
             {str(t.get("hash")): t for t in qb.torrents()} if hashes else {}
         )
@@ -651,26 +669,41 @@ def qb_set_limit(
                     f"{rate_text(row.get('dl_limit'))}, expected {rate_text(dl_limit)}"
                 )
     else:
-        if up_limit is not None and not same_rate(after.get("up_rate_limit"), up_limit):
+        # transfer/setUploadLimit 在备用限速开启时写的是**备用值**
+        # （源码 SessionImpl::setUploadSpeedLimit 会按 isAltGlobalSpeedLimitEnabled 分派），
+        # 所以校验对象要跟着换：读 transfer/info 只能证明"当前生效值"，不能证明写进了哪一侧。
+        if alt_active:
+            up_field, dl_field = "alt_up_limit", "alt_dl_limit"
+        else:
+            up_field, dl_field = "up_limit", "dl_limit"
+        expected_up = expected_readback(up_limit) if up_limit is not None else None
+        expected_dl = expected_readback(dl_limit) if dl_limit is not None else None
+        want_up = expected_up if expected_up is not None else up_limit
+        want_dl = expected_dl if expected_dl is not None else dl_limit
+        if up_limit is not None and not same_rate(after_prefs.get(up_field), want_up):
             problems.append(
-                f"upload readback mismatch: wanted {rate_text(up_limit)}, "
-                f"got {rate_text(after.get('up_rate_limit'))}"
+                f"upload limit in {up_field} reads back "
+                f"{rate_text(after_prefs.get(up_field))}, expected {rate_text(want_up)}"
             )
-        if dl_limit is not None and not same_rate(after.get("dl_rate_limit"), dl_limit):
+        if dl_limit is not None and not same_rate(after_prefs.get(dl_field), want_dl):
             problems.append(
-                f"download readback mismatch: wanted {rate_text(dl_limit)}, "
-                f"got {rate_text(after.get('dl_rate_limit'))}"
+                f"download limit in {dl_field} reads back "
+                f"{rate_text(after_prefs.get(dl_field))}, expected {rate_text(want_dl)}"
             )
+
     warnings: list[str] = []
-    if problems and alt_active and not hashes:
-        # 备用限速在生效时，实际速率取的是备用值，全局限速读回对不上属正常。
-        warnings = problems
-        problems = []
+    if not hashes:
+        target = "alternative" if alt_active else "normal"
         warnings.append(
-            "alternative speed limits are active, so the effective limit is "
-            f"{rate_text(normalize_rate(prefs.get('alt_up_limit')))}; the value "
-            "written here applies once alternative mode is switched off"
+            f"wrote the {target} limit (alternative speed limits are "
+            f"{'active' if alt_active else 'off'}); effective right now: "
+            f"{rate_text(normalize_rate(after.get('up_rate_limit')))}"
         )
+        if up_limit is not None and expected_readback(up_limit) != up_limit:
+            warnings.append(
+                f"qBittorrent stores whole KiB, so {up_limit} B/s became "
+                f"{expected_readback(up_limit)} B/s"
+            )
     if problems:
         return f"ERROR: [{instance}] speed limit did not take effect - " + "; ".join(problems)
 
@@ -837,6 +870,7 @@ def qb_add(
     savepath: str = "",
     category: str = "",
     paused: bool = True,
+    wait_seconds: float = 10.0,
 ) -> str:
     """Add a torrent from a URL, magnet link, or a local .torrent path.
 
@@ -846,6 +880,9 @@ def qb_add(
         savepath: target directory; empty uses the instance default.
         category: category to assign.
         paused: add in paused state (default true) so it can be reviewed first.
+        wait_seconds: how long to wait for the torrent to show up. Magnet links
+            ingest metadata asynchronously, so the add request returning 200 does
+            not prove anything; the torrent must appear in the list.
     """
     data: dict[str, Any] = {}
     if savepath:
@@ -878,9 +915,16 @@ def qb_add(
                     files={"torrents": (path.name, handle, "application/x-bittorrent")},
                 )
 
-        added = [t for t in qb.torrents() if str(t.get("hash")) not in before_hashes]
+        added = _wait_for_new_torrent(qb, before_hashes, wait_seconds)
     except (QBError, ConfigError) as exc:
         return error_text(exc)
+
+    if not added:
+        return (
+            f"ERROR: [{instance}] the add request was accepted but no new torrent "
+            f"appeared within {wait_seconds:g}s - it may be a duplicate, an "
+            "unsupported source, or a magnet still waiting for metadata"
+        )
 
     warning = ""
     if paused and len(added) == 1:

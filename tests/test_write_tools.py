@@ -40,6 +40,7 @@ class RecordQB:
         self._transfer = transfer if transfer is not None else {}
         self._prefs = prefs if prefs is not None else {}
         self.apply_set_preferences = True
+        self.apply_transfer_limits = True
         self._props = props if props is not None else {}
         self._trackers = trackers if trackers is not None else []
         # 让指定方法抛 QBError，用来走工具里的异常分支。
@@ -78,6 +79,13 @@ class RecordQB:
         self._fail_if_asked("post")
         self.posts.append((path, data))
         self.post_kwargs.append(kwargs)
+        # transfer/setUploadLimit 在备用限速开启时写的是备用值（源码 SessionImpl 的分派行为）。
+        if self.apply_transfer_limits and isinstance(data, dict) and "limit" in data:
+            alt = str(self._prefs.get("speed_limits_mode") or 0) == "1"
+            if path.endswith("/transfer/setUploadLimit"):
+                self._prefs["alt_up_limit" if alt else "up_limit"] = int(data["limit"])
+            elif path.endswith("/transfer/setDownloadLimit"):
+                self._prefs["alt_dl_limit" if alt else "dl_limit"] = int(data["limit"])
         # setPreferences 之后读回要看到新值，否则无法验证写后校验逻辑。
         if (
             path.endswith("/app/setPreferences")
@@ -371,33 +379,21 @@ def test_set_limit_requires_at_least_one_side(wire) -> None:
 def test_set_limit_global_posts_to_set_endpoints(wire) -> None:
     # D2：写入端点是 setUploadLimit/setDownloadLimit；uploadLimit 是读取端点，
     # 对它 POST 会返回 200 但什么都不做（实测于 5.2.4）。
-    stub = wire(
-        RecordQB(
-            transfer=[
-                {"up_rate_limit": 0, "dl_rate_limit": 0},
-                {"up_rate_limit": 1024, "dl_rate_limit": 2048},
-            ]
-        )
-    )
+    stub = wire(RecordQB(transfer={"up_rate_limit": 0, "dl_rate_limit": 0}))
 
-    out = server.qb_set_limit("test", up=1024, dl=2048)
+    out = server.qb_set_limit("test", up=2048, dl=4096)
 
     paths = [p for p, _ in stub.posts]
     assert paths == ["/api/v2/transfer/setUploadLimit", "/api/v2/transfer/setDownloadLimit"]
-    assert stub.posts[0][1] == {"limit": "1024"}
+    assert stub.posts[0][1] == {"limit": "2048"}
     assert "speed limit updated" in out
+    assert stub.posts[0][1] == {"limit": "2048"}
 
 
 def test_set_limit_reports_when_the_write_had_no_effect(wire) -> None:
     # 写接口对任何情况都返回 200，只能靠读回判断。
-    wire(
-        RecordQB(
-            transfer=[
-                {"up_rate_limit": 0, "dl_rate_limit": 0},
-                {"up_rate_limit": 0, "dl_rate_limit": 0},
-            ]
-        )
-    )
+    stub = wire(RecordQB(transfer={"up_rate_limit": 0, "dl_rate_limit": 0}))
+    stub.apply_transfer_limits = False  # 模拟服务端返回 200 但没改
 
     out = server.qb_set_limit("test", up=1048576)
 
@@ -511,7 +507,7 @@ def test_set_share_flags_a_readback_mismatch(wire) -> None:
 def test_add_accepts_a_magnet_link(wire) -> None:
     stub = wire(RecordQB())
 
-    server.qb_add("test", "magnet:?xt=urn:btih:abc")
+    server.qb_add("test", "magnet:?xt=urn:btih:abc", wait_seconds=0)
 
     path, data = stub.posts[0]
     assert path == "/api/v2/torrents/add"
@@ -522,7 +518,9 @@ def test_add_accepts_a_magnet_link(wire) -> None:
 def test_add_accepts_an_http_url_with_extras(wire) -> None:
     stub = wire(RecordQB())
 
-    server.qb_add("test", "https://example.com/a.torrent", savepath="/data", category="films")
+    server.qb_add(
+        "test", "https://example.com/a.torrent", savepath="/data", category="films", wait_seconds=0
+    )
 
     _path, data = stub.posts[0]
     assert data["savepath"] == "/data"
@@ -535,7 +533,7 @@ def test_add_uploads_a_local_torrent_file(wire, tmp_path: Path) -> None:
     torrent = tmp_path / "sample.torrent"
     torrent.write_bytes(b"d8:announce4:http")
 
-    server.qb_add("test", str(torrent), paused=False)
+    server.qb_add("test", str(torrent), paused=False, wait_seconds=0)
 
     _path, data = stub.posts[0]
     assert data["paused"] == "false"
@@ -545,7 +543,7 @@ def test_add_uploads_a_local_torrent_file(wire, tmp_path: Path) -> None:
 def test_add_rejects_an_unreadable_source(wire) -> None:
     wire(RecordQB())
 
-    out = server.qb_add("test", "/nope/missing.torrent")
+    out = server.qb_add("test", "/nope/missing.torrent", wait_seconds=0)
 
     assert out.startswith("ERROR:")
     assert "not a magnet" in out
@@ -631,7 +629,7 @@ def test_add_uploads_the_torrent_file_as_multipart(wire, tmp_path) -> None:
     torrent.write_bytes(b"d4:infod4:name1:xe")
     stub = wire(RecordQB())
 
-    server.qb_add("test", str(torrent), paused=True)
+    server.qb_add("test", str(torrent), paused=True, wait_seconds=0)
 
     path, _data = stub.posts[0]
     assert path == "/api/v2/torrents/add"
@@ -671,7 +669,7 @@ def test_set_limit_does_not_fail_when_alternative_limits_are_active(wire) -> Non
     out = server.qb_set_limit("test", up=1048576)
 
     assert not out.startswith("ERROR:"), out
-    assert "alternative speed limits are active" in out
+    assert "wrote the alternative limit" in out
 
 
 def test_set_limit_alternative_mode_writes_preferences(wire) -> None:
@@ -774,7 +772,7 @@ def test_add_warns_when_the_state_is_not_stopped(wire, tmp_path) -> None:
 
     stub.torrents = _torrents  # type: ignore[assignment]
 
-    out = server.qb_add("test", str(torrent), paused=True)
+    out = server.qb_add("test", str(torrent), paused=True, wait_seconds=0)
 
     assert "may have been ignored" in out
 
@@ -808,19 +806,13 @@ def test_list_surfaces_api_errors_with_the_instance_name(wire) -> None:
 
 def test_global_download_limit_mismatch_is_reported(wire) -> None:
     """上传成功、下载没生效时必须单独指出下载那一侧。"""
-    wire(
-        RecordQB(
-            transfer=[
-                {"up_rate_limit": 0, "dl_rate_limit": 0},
-                {"up_rate_limit": 1048576, "dl_rate_limit": 0},
-            ]
-        )
-    )
+    stub = wire(RecordQB(transfer={"up_rate_limit": 0, "dl_rate_limit": 0}))
+    stub.apply_transfer_limits = False
 
     out = server.qb_set_limit("test", up=1048576, dl=1048576)
 
     assert out.startswith("ERROR:")
-    assert "download readback mismatch" in out
+    assert "dl_limit reads back" in out
     assert "1.0 MB/s" in out
 
 
@@ -841,3 +833,57 @@ def test_alternative_download_limit_mismatch_is_reported(wire) -> None:
 
     assert out.startswith("ERROR:")
     assert "alternative download limit" in out
+
+
+# -- 加种必须证明"真的进去了"（issue #8）-----------------------------------
+
+
+def test_add_fails_when_no_torrent_appears(wire, tmp_path) -> None:
+    """接口返回 200 但列表没变化时，不能报成功。"""
+    torrent = tmp_path / "x.torrent"
+    torrent.write_bytes(b"d4:infod4:name1:xe")
+    wire(RecordQB())
+
+    out = server.qb_add("test", str(torrent), wait_seconds=0)
+
+    assert out.startswith("ERROR:")
+    assert "no new torrent appeared" in out
+
+
+def test_add_waits_for_a_torrent_that_shows_up_late(wire, tmp_path, monkeypatch) -> None:
+    """磁力链的元数据是异步的，轮询到就应当成功。"""
+    monkeypatch.setattr(server, "TORRENT_POLL_INTERVAL", 0.01)
+    torrent = tmp_path / "x.torrent"
+    torrent.write_bytes(b"d4:infod4:name1:xe")
+    stub = wire(RecordQB())
+    calls = {"n": 0}
+
+    def _torrents(**_kw):
+        calls["n"] += 1
+        return [] if calls["n"] < 3 else [{"hash": "c" * 40, "state": "stoppedDL"}]
+
+    stub.torrents = _torrents  # type: ignore[assignment]
+
+    out = server.qb_add("test", str(torrent), wait_seconds=1.0)
+
+    assert "ERROR" not in out, out
+    assert calls["n"] >= 3
+
+
+def test_set_limit_warns_when_the_value_is_rounded_to_kib(wire) -> None:
+    """qBittorrent 按整 KiB 存限速，写 1000000 会变成 999424，必须告诉用户。"""
+    stub = wire(RecordQB(transfer={"up_rate_limit": 0, "dl_rate_limit": 0}))
+
+    def _post(path, data=None, **_kw):
+        if path.endswith("/transfer/setUploadLimit") and data:
+            # 复刻服务端的向下取整（不换算成我们的工具函数，避免自我验证）
+            raw = int(data["limit"])
+            stored = 0 if raw <= 0 else (1024 if raw <= 1024 else (raw // 1024) * 1024)
+            stub._prefs["up_limit"] = stored
+
+    stub.post = _post  # type: ignore[assignment]
+
+    out = server.qb_set_limit("test", up=1000000)
+
+    assert not out.startswith("ERROR:"), out
+    assert "999424 B/s" in out

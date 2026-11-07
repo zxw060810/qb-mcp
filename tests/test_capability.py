@@ -175,3 +175,22 @@ def test_version_note_is_empty_inside_the_audited_range() -> None:
 @pytest.mark.parametrize(("raw", "expected"), [("v4.6.4", 4), ("v5.2.4", 5), ("", None)])
 def test_major_is_derived_from_the_version(raw: str, expected: int | None) -> None:
     assert capabilities_for(raw).major == expected
+
+
+# -- qBittorrent 按 KiB 存限速（issue #7）----------------------------------
+
+
+@pytest.mark.parametrize(
+    ("written", "stored"),
+    [
+        (0, -1),
+        (-1, -1),
+        (500, 1024),          # 不足 1 KiB 会被抬到 1 KiB
+        (1024, 1024),
+        (409600, 409600),     # 正好 400 KiB
+        (1000000, 999424),    # 向下取整到 KiB
+        (1048576, 1048576),
+    ],
+)
+def test_expected_readback_matches_the_kib_quantisation(written: int, stored: int) -> None:
+    assert limits.expected_readback(written) == stored
