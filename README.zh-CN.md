@@ -13,6 +13,9 @@
 
 [English](https://github.com/zxw060810/qb-mcp/blob/main/README.md) | **简体中文**
 
+> 问智能体"这个种子为什么不上传"，它真的能答上来——tracker 状态、监听端口、限速、对等方供应，全都查过再回答，不是猜的。
+> 让它去暂停盒子上的任务，它也知道 qBittorrent 5.x 把这个端点改名了。
+
 `qb-mcp` 封装 qBittorrent WebUI API v2，把它变成 11 个 AI 智能体可以调用的工具。
 它支持**任意多个实例**，每个实例有自己的账号密码，所以一个智能体可以同时管理家里的 NAS 和远程盒子。
 
