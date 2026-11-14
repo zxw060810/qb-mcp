@@ -14,6 +14,10 @@
 
 **English** | [简体中文](https://github.com/zxw060810/qb-mcp/blob/main/README.zh-CN.md)
 
+> Ask your agent "why isn't this torrent uploading?" and it can actually answer —
+> tracker health, listening port, speed caps and peer supply, instead of guessing.
+> Ask it to pause the seedbox and it knows qBittorrent 5.x renamed that endpoint.
+
 `qb-mcp` wraps the qBittorrent WebUI API v2 and exposes it as eleven tools that
 an AI agent can call. It manages **any number of instances**, each with its own
 credentials, so a single agent can drive a home NAS and a remote seedbox at once.
