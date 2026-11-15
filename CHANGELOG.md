@@ -5,6 +5,14 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] - 2026-11-15
+
+### Changed
+
+- Releases now republish to the official MCP Registry automatically. The
+  `mcp-registry` job authenticates with GitHub OIDC and takes the version from
+  the tag, so the registry cannot drift from what PyPI carries.
+
 ## [0.2.3] - 2026-11-15
 
 ### Added
