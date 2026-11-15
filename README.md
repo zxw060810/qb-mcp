@@ -10,6 +10,7 @@
 [![Coverage](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fzxw060810%2Fqb-mcp%2Fmain%2Fdocs%2Fcoverage.json&query=%24.percent&suffix=%25&label=coverage&color=brightgreen)](https://github.com/zxw060810/qb-mcp/blob/main/docs/TESTLIST.md)
 [![License](https://img.shields.io/github/license/zxw060810/qb-mcp)](https://github.com/zxw060810/qb-mcp/blob/main/LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-streamable%20http%20%7C%20stdio-8b5cf6.svg)](https://modelcontextprotocol.io)
+[![qb-mcp MCP server](https://glama.ai/mcp/servers/zxw060810/qb-mcp/badges/score.svg)](https://glama.ai/mcp/servers/zxw060810/qb-mcp)
 
 > This is an unofficial project. It is not affiliated with, endorsed by, or
 > supported by the qBittorrent project.
