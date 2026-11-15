@@ -1,0 +1,23 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.zxw060810/qb-mcp",
+  "title": "qBittorrent",
+  "description": "qBittorrent MCP server: eleven intent-shaped tools, multi-instance, version-aware calls.",
+  "version": "0.2.3",
+  "repository": {
+    "url": "https://github.com/zxw060810/qb-mcp",
+    "source": "github"
+  },
+  "websiteUrl": "https://pypi.org/project/qb-mcp/",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "qb-mcp",
+      "version": "0.2.3",
+      "transport": {
+        "type": "stdio"
+      },
+      "runtimeHint": "uvx"
+    }
+  ]
+}
