@@ -2,32 +2,33 @@
 """Build the container image and speak MCP to it over stdio.
 
 This reproduces what a directory service does before it will list the server:
-build the image, start it with no credentials present, and inspect what it
-declares. Glama runs exactly this sequence, so a red build here means the
-listing would break there.
+build the image, start it with no credentials present, and ask what it exposes.
+Glama runs exactly this sequence, so a red build here means the listing breaks
+there instead.
 
-The check that matters is the last one: ``tools/list`` has to succeed with no
-configuration mounted. ``qb-mcp`` loads its config when a tool is called, not
+The check that matters is the tool listing: it has to succeed with **no**
+configuration mounted. ``qb-mcp`` reads its config when a tool is called, not
 at import time, and that is what makes introspection possible in a sandbox
-that has no access to a real qBittorrent.
+with no access to a real qBittorrent.
+
+JSON-RPC is written straight to the container's stdin and read back from its
+stdout, so the check needs nothing but the standard library.
 
 Usage:
     python scripts/docker_smoke.py
     python scripts/docker_smoke.py --skip-build --image qb-mcp:ci
-    python scripts/docker_smoke.py --docker-prefix "sudo -n"   # local, unprivileged user
+    python scripts/docker_smoke.py --docker-prefix "sudo -n"   # if not in the docker group
 """
 
 from __future__ import annotations
 
 import argparse
-import asyncio
+import json
+import selectors
 import subprocess
 import sys
 
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
-
-EXPECTED_TOOLS = [
+EXPECTED_TOOLS = sorted([
     "qb_add",
     "qb_category",
     "qb_control",
@@ -39,42 +40,89 @@ EXPECTED_TOOLS = [
     "qb_remove",
     "qb_set_limit",
     "qb_set_share",
-]
+])
+
+READ_TIMEOUT = 30.0
 
 
-def build(image: str, prefix: list[str]) -> None:
-    print(f"building {image}")
-    subprocess.run([*prefix, "docker", "build", "-t", image, "."], check=True)
+def run(prefix: list[str], args: list[str], **kwargs) -> subprocess.CompletedProcess:
+    return subprocess.run([*prefix, *args], check=False, **kwargs)
 
 
-async def inspect(image: str, prefix: list[str]) -> int:
-    command = prefix[0] if prefix else "docker"
-    # Keep "docker" in the argument list: the prefix only says *how* to run it
-    # (e.g. "sudo -n"), it does not replace it.
-    args = [
-        *prefix[1:], "docker",
-        "run", "--rm", "-i",
-        # /tmp is empty, so the server cannot accidentally find a config file
-        # and the check stays honest about needing no credentials.
-        "-w", "/tmp",
-        image,
-    ]
-    # Inherit the environment so the child can resolve `docker` on PATH.
-    params = StdioServerParameters(command=command, args=args)
+def read_message(stream, deadline: float) -> dict:
+    """Read one JSON-RPC message, letting the container take its time."""
+    selector = selectors.DefaultSelector()
+    selector.register(stream, selectors.EVENT_READ)
+    try:
+        while True:
+            if not selector.select(timeout=max(0.1, deadline)):
+                raise TimeoutError("the server did not answer in time")
+            line = stream.readline()
+            if not line:
+                raise EOFError("the container closed stdout before answering")
+            line = line.strip()
+            if line:
+                return json.loads(line)
+            deadline -= 0.1
+    finally:
+        selector.close()
 
-    async with stdio_client(params, errlog=sys.stderr) as (read, write):
-        async with ClientSession(read, write) as session:
-            init = await session.initialize()
-            server = getattr(init, "server_info", None) or getattr(init, "serverInfo", None)
-            tools = await session.list_tools()
 
-    names = sorted(tool.name for tool in tools.tools)
-    print(f"server: {server.name} {server.version}")
+def send(proc: subprocess.Popen, payload: dict) -> None:
+    assert proc.stdin is not None
+    proc.stdin.write(json.dumps(payload) + "\n")
+    proc.stdin.flush()
+
+
+def inspect(image: str, prefix: list[str]) -> int:
+    command = [*prefix, "docker", "run", "--rm", "-i",
+               # /tmp is empty, so the server cannot pick up a config file by
+               # accident and the "no credentials" claim stays honest.
+               "-w", "/tmp", image]
+    print(f"running: {' '.join(command)}")
+    proc = subprocess.Popen(
+        command,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+    )
+    try:
+        send(proc, {
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {},
+                "clientInfo": {"name": "docker-smoke", "version": "0"},
+            },
+        })
+        assert proc.stdout is not None
+        init = read_message(proc.stdout, READ_TIMEOUT)["result"]
+        server = init["serverInfo"]
+
+        send(proc, {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
+        tools = read_message(proc.stdout, READ_TIMEOUT)["result"]["tools"]
+        names = sorted(tool["name"] for tool in tools)
+    except (TimeoutError, EOFError, KeyError) as exc:
+        detail = proc.stderr.read() if proc.stderr else ""
+        print(f"FAIL {exc}", file=sys.stderr)
+        if detail.strip():
+            print(detail.strip(), file=sys.stderr)
+        return 1
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
+    print(f"server: {server['name']} {server['version']}")
     print(f"tools/list: {len(names)}")
 
     problems = []
-    if server.name != "qb-mcp":
-        problems.append(f"server name is {server.name!r}, expected 'qb-mcp'")
+    if server["name"] != "qb-mcp":
+        problems.append(f"server name is {server['name']!r}, expected 'qb-mcp'")
     if names != EXPECTED_TOOLS:
         missing = sorted(set(EXPECTED_TOOLS) - set(names))
         extra = sorted(set(names) - set(EXPECTED_TOOLS))
@@ -90,20 +138,28 @@ async def inspect(image: str, prefix: list[str]) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description="Build the image and introspect it over stdio."
+    )
     parser.add_argument("--image", default="qb-mcp:ci")
     parser.add_argument(
         "--docker-prefix",
         default="",
-        help="command prepended to docker, e.g. 'sudo -n' when the user is not in the docker group",
+        help="command placed before docker, e.g. 'sudo -n' if not in the docker group",
     )
     parser.add_argument("--skip-build", action="store_true", help="reuse an existing image")
     args = parser.parse_args()
 
     prefix = args.docker_prefix.split() if args.docker_prefix else []
+
     if not args.skip_build:
-        build(args.image, prefix)
-    return asyncio.run(inspect(args.image, prefix))
+        print(f"building {args.image}")
+        built = run(prefix, ["docker", "build", "-t", args.image, "."])
+        if built.returncode != 0:
+            print("FAIL the image did not build", file=sys.stderr)
+            return 1
+
+    return inspect(args.image, prefix)
 
 
 if __name__ == "__main__":

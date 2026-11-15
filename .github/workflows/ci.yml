@@ -101,8 +101,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install an MCP client
-        run: pip install "mcp>=1.28,<3"
+      # The script talks JSON-RPC over the container's stdin/stdout, so it
+      # needs no MCP SDK - fewer moving parts between the image and the check.
       - name: Build the image and introspect it
         run: python scripts/docker_smoke.py
 
