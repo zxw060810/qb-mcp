@@ -1,0 +1,10 @@
+.git
+.github
+.venv
+tests
+docs
+examples
+scripts
+*.log
+.instances.json
+coverage.json

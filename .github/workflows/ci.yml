@@ -91,6 +91,21 @@ jobs:
       - name: "Offline suite against ${{ matrix.mcp }}"
         run: pytest -q --ignore=tests/live tests/test_transport.py tests/test_entry.py tests/test_capability.py
 
+  # Build the image and speak MCP to it, because the Dockerfile is not just
+  # packaging: directory services (Glama) run exactly this to decide whether
+  # the server is listable, and a broken image silently costs the listing.
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # The script talks JSON-RPC over the container's stdin/stdout, so it
+      # needs no MCP SDK - fewer moving parts between the image and the check.
+      - name: Build the image and introspect it
+        run: python scripts/docker_smoke.py
+
   # -- Weekly contract audit: does upstream still match our table? -----------
   audit:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
