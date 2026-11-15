@@ -1,5 +1,7 @@
 # qb-mcp
 
+<!-- mcp-name: io.github.zxw060810/qb-mcp -->
+
 **An MCP server for qBittorrent — manage torrents with natural language.**
 
 [![CI](https://github.com/zxw060810/qb-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/zxw060810/qb-mcp/actions/workflows/ci.yml)
