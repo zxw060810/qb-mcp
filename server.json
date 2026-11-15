@@ -3,7 +3,7 @@
   "name": "io.github.zxw060810/qb-mcp",
   "title": "qBittorrent",
   "description": "qBittorrent MCP server: eleven intent-shaped tools, multi-instance, version-aware calls.",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "repository": {
     "url": "https://github.com/zxw060810/qb-mcp",
     "source": "github"
@@ -13,7 +13,7 @@
     {
       "registryType": "pypi",
       "identifier": "qb-mcp",
-      "version": "0.2.3",
+      "version": "0.2.4",
       "transport": {
         "type": "stdio"
       },
