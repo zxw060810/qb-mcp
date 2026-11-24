@@ -89,17 +89,21 @@ mcp = _create_server()
 # MCP tool annotations. Directories (Glama) and clients read these to decide
 # whether a call is safe to retry, whether it can lose data, and whether it
 # reaches beyond the local machine.
-_READ_ONLY = ToolAnnotations(
-    readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+_READ_ONLY = ToolAnnotations.model_validate(
+    {"readOnlyHint": True, "destructiveHint": False,
+     "idempotentHint": True, "openWorldHint": False}
 )
-_REVERSIBLE_WRITE = ToolAnnotations(
-    readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=False
+_REVERSIBLE_WRITE = ToolAnnotations.model_validate(
+    {"readOnlyHint": False, "destructiveHint": False,
+     "idempotentHint": True, "openWorldHint": False}
 )
-_REMOTE_WRITE = ToolAnnotations(
-    readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True
+_REMOTE_WRITE = ToolAnnotations.model_validate(
+    {"readOnlyHint": False, "destructiveHint": False,
+     "idempotentHint": False, "openWorldHint": True}
 )
-_DESTRUCTIVE_WRITE = ToolAnnotations(
-    readOnlyHint=False, destructiveHint=True, idempotentHint=True, openWorldHint=False
+_DESTRUCTIVE_WRITE = ToolAnnotations.model_validate(
+    {"readOnlyHint": False, "destructiveHint": True,
+     "idempotentHint": True, "openWorldHint": False}
 )
 
 _CONFIG: AppConfig | None = None
