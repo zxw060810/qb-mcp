@@ -19,6 +19,8 @@ import sys
 import time
 from typing import Any
 
+from mcp.types import ToolAnnotations
+
 from . import __version__
 from .capability import (
     HALTED_STATES,
@@ -83,6 +85,26 @@ def _create_server() -> Any:
 
 
 mcp = _create_server()
+
+# MCP tool annotations. Directories (Glama) and clients read these to decide
+# whether a call is safe to retry, whether it can lose data, and whether it
+# reaches beyond the local machine.
+_READ_ONLY = ToolAnnotations.model_validate(
+    {"readOnlyHint": True, "destructiveHint": False,
+     "idempotentHint": True, "openWorldHint": False}
+)
+_REVERSIBLE_WRITE = ToolAnnotations.model_validate(
+    {"readOnlyHint": False, "destructiveHint": False,
+     "idempotentHint": True, "openWorldHint": False}
+)
+_REMOTE_WRITE = ToolAnnotations.model_validate(
+    {"readOnlyHint": False, "destructiveHint": False,
+     "idempotentHint": False, "openWorldHint": True}
+)
+_DESTRUCTIVE_WRITE = ToolAnnotations.model_validate(
+    {"readOnlyHint": False, "destructiveHint": True,
+     "idempotentHint": True, "openWorldHint": False}
+)
 
 _CONFIG: AppConfig | None = None
 _CLIENTS: dict[str, QBClient] = {}
@@ -256,7 +278,7 @@ def error_text(exc: Exception) -> str:
 # -- read tools ------------------------------------------------------------
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def qb_instances() -> str:
     """List every configured qBittorrent instance and whether it is reachable."""
     lines = ["configured instances:"]
@@ -273,9 +295,19 @@ def qb_instances() -> str:
     return "\n".join(lines)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def qb_overview(instance: str = "") -> str:
-    """Global status for one instance, or all instances when omitted.
+    """Summarise one instance (or all) without listing any torrent.
+
+    Use this first, when the question is "what is this instance doing right
+    now": it returns connection state, live up/down speed, all-time transfer
+    totals and a count of torrents per state. Reach for qb_list when you need
+    the torrents themselves, qb_detail for one torrent's files and trackers,
+    and qb_diagnose when the question is specifically why nothing is uploading.
+
+    Returns, per instance, the qBittorrent version, connection status, current
+    speeds, all-time downloaded/uploaded totals, the share ratio, and a
+    breakdown such as "uploading 2, stalledUP 91".
 
     Args:
         instance: instance key from .instances.json; empty means every instance.
@@ -315,7 +347,7 @@ def qb_overview(instance: str = "") -> str:
     return "\n\n".join(blocks)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def qb_list(
     instance: str,
     filter: str = "all",
@@ -374,7 +406,7 @@ def qb_list(
     return header + "\n\n" + "\n".join(rows)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def qb_detail(
     instance: str,
     hash: str = "",
@@ -425,7 +457,7 @@ def qb_detail(
     return "\n".join(lines)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def qb_diagnose(instance: str, hash: str = "") -> str:
     """Explain why a qBittorrent instance is (or is not) uploading.
 
@@ -540,7 +572,7 @@ def qb_diagnose(instance: str, hash: str = "") -> str:
 # -- write tools -----------------------------------------------------------
 
 
-@mcp.tool()
+@mcp.tool(annotations=_REVERSIBLE_WRITE)
 def qb_control(instance: str, action: str, hashes: list[str] | None = None) -> str:
     """Change torrent state.
 
@@ -581,7 +613,7 @@ def qb_control(instance: str, action: str, hashes: list[str] | None = None) -> s
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations=_REVERSIBLE_WRITE)
 def qb_set_limit(
     instance: str,
     up: int | None = None,
@@ -770,7 +802,7 @@ def _set_alternative_limit(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations=_REVERSIBLE_WRITE)
 def qb_set_share(
     instance: str,
     hashes: list[str],
@@ -863,7 +895,7 @@ def qb_set_share(
     return "\n".join(lines)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_REMOTE_WRITE)
 def qb_add(
     instance: str,
     source: str,
@@ -940,9 +972,19 @@ def qb_add(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations=_DESTRUCTIVE_WRITE)
 def qb_remove(instance: str, hashes: list[str], delete_files: bool = False) -> str:
-    """Remove torrents. Downloaded files are kept unless delete_files is true.
+    """Remove torrents from an instance. Downloaded data is kept by default.
+
+    Removal is irreversible: the torrent and its resume data are gone, and
+    re-adding it means re-downloading the metadata. If all you want is to stop
+    transferring, pause it with qb_control instead - that keeps everything and
+    can be undone.
+
+    Set delete_files only when you also want the payload deleted; that cannot
+    be undone either. Removing a hash that is no longer present is harmless -
+    qBittorrent accepts the call, and the reply counts the hashes you asked to
+    remove rather than the ones that existed.
 
     Args:
         instance: instance key from .instances.json.
@@ -965,20 +1007,34 @@ def qb_remove(instance: str, hashes: list[str], delete_files: bool = False) -> s
     return f"[{instance}] removed {len(hashes)} torrent(s){suffix}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=_REVERSIBLE_WRITE)
 def qb_category(
     instance: str,
     hashes: list[str],
     category: str = "",
     tags: list[str] | None = None,
 ) -> str:
-    """Assign a category and/or tags to torrents.
+    """Move torrents into a category and/or add tags to them.
+
+    Use this to organise a library after the fact - a new download that landed
+    in the wrong category, or a batch you want to find again later. It changes
+    metadata only; nothing is downloaded, stopped or removed.
+
+    Tags merge, they do not replace: the values in `tags` are appended to
+    whatever the torrent already carries, and there is no call here for removing
+    a tag. The category is assigned as a whole, so an empty `category` leaves
+    the existing one untouched rather than clearing it.
+
+    Both fields are optional but at least one must be non-empty, otherwise the
+    call returns an error. If the category is applied and the tag call then
+    fails, the category change stays and the error names the failure - the
+    operation is not rolled back.
 
     Args:
         instance: instance key from .instances.json.
         hashes: torrent hashes to update.
         category: category name; empty leaves it unchanged.
-        tags: tags to add.
+        tags: tags to append; existing tags are kept.
     """
     if not hashes:
         return "ERROR: hashes must not be empty"

@@ -5,6 +5,18 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.5] - 2026-11-24
+
+### Changed
+
+- Every tool now carries MCP annotations (`readOnlyHint`, `destructiveHint`,
+  `idempotentHint`, `openWorldHint`), so clients and directories can tell a
+  read from a write and a reversible call from a destructive one without
+  reading the description.
+- Rewrote the descriptions of `qb_category`, `qb_overview` and `qb_remove`:
+  each now says what comes back, when to prefer it over its siblings, and what
+  the call does not do (tag merge semantics, irreversible removal).
+
 ## [0.2.4] - 2026-11-15
 
 ### Changed
